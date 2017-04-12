@@ -305,6 +305,11 @@ License:        LGPL-2.1 and CC-BY-SA-1.0 and GPL-2.0 and BSL-1.0 and GPL-2.0-wi
 Group:          System/Filesystems
 %endif
 Requires:       ceph-base = %{epoch}:%{version}-%{release}
+Requires:       pyOpenSSL
+Requires(post): openssl
+%if 0%{?fedora} || 0%{?rhel}
+Requires:      python-flask-restful
+%endif
 
 %description mgr
 ceph-mgr enables python modules that provide services (such as the REST
