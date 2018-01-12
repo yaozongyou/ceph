@@ -1666,16 +1666,21 @@ BlueStore::SharedBlob::~SharedBlob()
 void BlueStore::SharedBlob::put()
 {
   if (--nref == 0) {
-    ldout(coll->store->cct, 20) << __func__ << " " << this
-			     << " removing self from set " << get_parent()
-			     << dendl;
+    if (coll != nullptr) {
+      ldout(coll->store->cct, 20) << __func__ << " " << this
+  			       << " removing self from set " << get_parent()
+			       << dendl;
+    }
+
     if (get_parent()) {
       if (get_parent()->try_remove(this)) {
 	delete this;
       } else {
-	ldout(coll->store->cct, 20)
-	  << __func__ << " " << this << " lost race to remove myself from set"
-	  << dendl;
+        if (coll != nullptr) {
+	  ldout(coll->store->cct, 20)
+	    << __func__ << " " << this << " lost race to remove myself from set"
+	    << dendl;
+        }
       }
     } else {
       delete this;

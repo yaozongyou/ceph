@@ -336,9 +336,9 @@ TEST(Blob, put_ref)
 {
   {
     BlueStore store(g_ceph_context, "", 4096);
-    BlueStore::Cache *cache = BlueStore::Cache::create(
-      g_ceph_context, "lru", NULL);
-    BlueStore::Collection coll(&store, cache, coll_t());
+    std::unique_ptr<BlueStore::Cache> cache(BlueStore::Cache::create(
+      g_ceph_context, "lru", NULL));
+    BlueStore::Collection coll(&store, cache.get(), coll_t());
     BlueStore::Blob b;
     b.shared_blob = new BlueStore::SharedBlob(nullptr);
     b.shared_blob->get();  // hack to avoid dtor from running
@@ -362,13 +362,14 @@ TEST(Blob, put_ref)
     ASSERT_EQ(0u, b.get_referenced_bytes());
     cout << " r " << r << std::endl;
     cout << b << std::endl;
+    b.shared_blob->put(); 
   }
 
   unsigned mas = 4096;
   BlueStore store(g_ceph_context, "", 8192);
-  BlueStore::Cache *cache = BlueStore::Cache::create(
-    g_ceph_context, "lru", NULL);
-  BlueStore::CollectionRef coll(new BlueStore::Collection(&store, cache, coll_t()));
+  std::unique_ptr<BlueStore::Cache> cache(BlueStore::Cache::create(
+    g_ceph_context, "lru", NULL));
+  BlueStore::CollectionRef coll(new BlueStore::Collection(&store, cache.get(), coll_t()));
 
   {
     BlueStore::Blob B;
@@ -391,6 +392,7 @@ TEST(Blob, put_ref)
     ASSERT_FALSE(b.is_allocated(mas, 0));
     ASSERT_FALSE(b.get_extents()[0].is_valid());
     ASSERT_EQ(mas*2, b.get_extents()[0].length);
+    B.shared_blob->put();
   }
   {
     BlueStore::Blob B;
@@ -416,6 +418,7 @@ TEST(Blob, put_ref)
     ASSERT_FALSE(b.is_allocated(0, mas*2));
     ASSERT_FALSE(b.get_extents()[0].is_valid());
     ASSERT_EQ(mas*2, b.get_extents()[0].length);
+    B.shared_blob->put();
   }
   {
     BlueStore::Blob B;
@@ -455,6 +458,7 @@ TEST(Blob, put_ref)
     ASSERT_TRUE(b.get_extents()[1].is_valid());
     ASSERT_FALSE(b.get_extents()[2].is_valid());
     ASSERT_EQ(3u, b.get_extents().size());
+    B.shared_blob->put();
   }
   {
     BlueStore::Blob B;
@@ -497,6 +501,7 @@ TEST(Blob, put_ref)
     ASSERT_FALSE(b.get_extents()[2].is_valid());
     ASSERT_TRUE(b.get_extents()[3].is_valid());
     ASSERT_TRUE(b.get_extents()[4].is_valid());
+    B.shared_blob->put();
   }
   {
     BlueStore::Blob B;
@@ -530,6 +535,7 @@ TEST(Blob, put_ref)
     ASSERT_TRUE(b.get_extents()[0].is_valid());
     ASSERT_FALSE(b.get_extents()[1].is_valid());
     ASSERT_TRUE(b.get_extents()[2].is_valid());
+    B.shared_blob->put();
   }
   {
     BlueStore::Blob B;
@@ -569,6 +575,7 @@ TEST(Blob, put_ref)
     ASSERT_TRUE(b.get_extents()[0].is_valid());
     ASSERT_FALSE(b.get_extents()[1].is_valid());
     ASSERT_TRUE(b.get_extents()[2].is_valid());
+    B.shared_blob->put();
   }
   {
     BlueStore::Blob B;
@@ -625,6 +632,7 @@ TEST(Blob, put_ref)
     ASSERT_EQ(mas*2, r[0].length);
     ASSERT_EQ(1u, b.get_extents().size());
     ASSERT_FALSE(b.get_extents()[0].is_valid());
+    B.shared_blob->put();
   }
   {
     BlueStore::Blob B;
@@ -681,6 +689,7 @@ TEST(Blob, put_ref)
     ASSERT_EQ(mas*2, r[0].length);
     ASSERT_EQ(1u, b.get_extents().size());
     ASSERT_FALSE(b.get_extents()[0].is_valid());
+    B.shared_blob->put();
   }
   {
     BlueStore::Blob B;
@@ -724,6 +733,7 @@ TEST(Blob, put_ref)
     ASSERT_EQ(mas*2, r[0].length);
     ASSERT_EQ(1u, b.get_extents().size());
     ASSERT_FALSE(b.get_extents()[0].is_valid());
+    B.shared_blob->put();
   }
   // verify csum chunk size if factored in properly
   {
@@ -744,6 +754,7 @@ TEST(Blob, put_ref)
     ASSERT_TRUE(b.is_allocated(0, mas*4));
     ASSERT_TRUE(b.get_extents()[0].is_valid());
     ASSERT_EQ(mas*4, b.get_extents()[0].length);
+    B.shared_blob->put();
   }
   {
     BlueStore::Blob B;
@@ -767,6 +778,7 @@ TEST(Blob, put_ref)
     ASSERT_EQ(0x3800u + 0x6400u - 0x2000u, B.get_referenced_bytes());
     cout << "after: " << B << std::endl;
     cout << "r " << r << std::endl;
+    B.shared_blob->put();
   }
   {
     BlueStore::Blob B;
@@ -786,6 +798,7 @@ TEST(Blob, put_ref)
     ASSERT_EQ(1u, r.size());
     ASSERT_EQ(0x3002u, r[0].offset);
     ASSERT_EQ(0x2000u, r[0].length);
+    B.shared_blob->put();
   }
   {
     BlueStore::Blob B;
@@ -809,12 +822,13 @@ TEST(Blob, put_ref)
     ASSERT_EQ(2u, r[1].offset);
     ASSERT_EQ(0x3000u, r[1].length); // we have 0x1000 bytes less due to 
                                      // alignment caused by min_alloc_size = 0x2000
+    B.shared_blob->put();
   }
   {
     BlueStore store(g_ceph_context, "", 0x4000);
-    BlueStore::Cache *cache = BlueStore::Cache::create(
-      g_ceph_context, "lru", NULL);
-    BlueStore::CollectionRef coll(new BlueStore::Collection(&store, cache, coll_t()));
+    std::unique_ptr<BlueStore::Cache> cache(BlueStore::Cache::create(
+      g_ceph_context, "lru", NULL));
+    BlueStore::CollectionRef coll(new BlueStore::Collection(&store, cache.get(), coll_t()));
     BlueStore::Blob B;
     B.shared_blob = new BlueStore::SharedBlob(nullptr);
     B.shared_blob->get();  // hack to avoid dtor from running
@@ -836,6 +850,7 @@ TEST(Blob, put_ref)
     ASSERT_EQ(0x7000u, r[1].length);
     ASSERT_EQ(1u, b.get_extents()[0].offset);
     ASSERT_EQ(0x4000u, b.get_extents()[0].length);
+    B.shared_blob->put();
   }
 }
 
@@ -955,9 +970,9 @@ TEST(Blob, split)
 TEST(Blob, legacy_decode)
 {
   BlueStore store(g_ceph_context, "", 4096);
-  BlueStore::Cache *cache = BlueStore::Cache::create(
-    g_ceph_context, "lru", NULL);
-  BlueStore::CollectionRef coll(new BlueStore::Collection(&store, cache, coll_t()));
+  std::unique_ptr<BlueStore::Cache> cache(BlueStore::Cache::create(
+    g_ceph_context, "lru", NULL));
+  BlueStore::CollectionRef coll(new BlueStore::Collection(&store, cache.get(), coll_t()));
   bufferlist bl, bl2;
   {
     BlueStore::Blob B;
