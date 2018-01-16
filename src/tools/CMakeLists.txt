@@ -9,8 +9,8 @@ add_executable(rados ${rados_srcs})
 target_link_libraries(rados librados global ${BLKID_LIBRARIES} ${CMAKE_DL_LIBS} radosstriper)
 install(TARGETS rados DESTINATION bin)
 
-add_executable(test_tool test_tool.cc)
-target_link_libraries(test_tool global)
+add_executable(md5sum md5sum.cc)
+target_link_libraries(md5sum global)
 
 if(WITH_TESTS)
 add_executable(ceph_scratchtool scratchtool.c)
