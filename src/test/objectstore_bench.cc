@@ -14,9 +14,14 @@
 
 #include "common/strtol.h"
 #include "common/ceph_argparse.h"
+#include "common/log_message.h"
 
 #define dout_context g_ceph_context
 #define dout_subsys ceph_subsys_filestore
+
+// use big pool ids to avoid clashing with existing collections
+static constexpr int64_t POOL_ID = 0x0000ffffffffffff;
+static constexpr uint32_t PG_NUMBER = 256;
 
 static void usage()
 {
@@ -34,50 +39,8 @@ static void usage()
   generic_server_usage();
 }
 
-// helper class for bytes with units
-struct byte_units {
-  size_t v;
-  // cppcheck-suppress noExplicitConstructor
-  byte_units(size_t v) : v(v) {}
-
-  bool parse(const std::string &val, std::string *err);
-
-  operator size_t() const { return v; }
-};
-
-bool byte_units::parse(const std::string &val, std::string *err)
-{
-  v = strict_sistrtoll(val.c_str(), err);
-  return err->empty();
-}
-
-std::ostream& operator<<(std::ostream &out, const byte_units &amount)
-{
-  static const char* units[] = { "B", "KB", "MB", "GB", "TB", "PB", "EB" };
-  static const int max_units = sizeof(units)/sizeof(*units);
-
-  int unit = 0;
-  auto v = amount.v;
-  while (v >= 1024 && unit < max_units) {
-    // preserve significant bytes
-    if (v < 1048576 && (v % 1024 != 0))
-      break;
-    v >>= 10;
-    unit++;
-  }
-  return out << v << ' ' << units[unit];
-}
-
 struct Config {
-  byte_units size;
-  byte_units block_size;
-  int repeats;
-  int threads;
-  bool multi_object;
-  Config()
-    : size(1048576), block_size(4096),
-      repeats(1), threads(1),
-      multi_object(false) {}
+  int threads{10};
 };
 
 class C_NotifyCond : public Context {
@@ -91,65 +54,132 @@ public:
     std::lock_guard<std::mutex> lock(*mutex);
     *done = true;
     cond->notify_one();
+    LOG(INFO) << "finish r " << r;
   }
 };
 
-void osbench_worker(ObjectStore *os, const Config &cfg,
-                    const coll_t cid, const ghobject_t oid,
-                    uint64_t starting_offset)
-{
-  bufferlist data;
-  data.append(buffer::create(cfg.block_size));
-
-  dout(0) << "Writing " << cfg.size
-      << " in blocks of " << cfg.block_size << dendl;
-
-  assert(starting_offset < cfg.size);
-  assert(starting_offset % cfg.block_size == 0);
-
-  ObjectStore::CollectionHandle ch = os->open_collection(cid);
-  assert(ch);
-
-  for (int i = 0; i < cfg.repeats; ++i) {
-    uint64_t offset = starting_offset;
-    size_t len = cfg.size;
-
-    vector<ObjectStore::Transaction> tls;
-
-    std::cout << "Write cycle " << i << std::endl;
-    while (len) {
-      size_t count = len < cfg.block_size ? len : (size_t)cfg.block_size;
-
-      auto t = new ObjectStore::Transaction;
-      t->write(cid, oid, offset, count, data);
-      tls.push_back(std::move(*t));
-      delete t;
-
-      offset += count;
-      if (offset > cfg.size)
-        offset -= cfg.size;
-      len -= count;
-    }
-
-    // set up the finisher
+ObjectStore::CollectionHandle OpenCollection(ObjectStore* os, uint32_t i) {
+  auto pg = spg_t{pg_t{i, POOL_ID}};
+  coll_t cid(pg);
+    
+  ObjectStore::CollectionHandle ch;
+ 
+  if (!os->collection_exists(cid)) {
     std::mutex mutex;
     std::condition_variable cond;
     bool done = false;
 
-    tls.back().register_on_commit(new C_NotifyCond(&mutex, &cond, &done));
-    os->queue_transactions(ch, tls);
+    ch = os->create_new_collection(cid);
+    ObjectStore::Transaction t;
+    t.register_on_applied(new C_NotifyCond(&mutex, &cond, &done));
+    t.create_collection(cid, 0);
+    int r = os->queue_transaction(ch, std::move(t));
+    assert(r == 0);
+    std::unique_lock<std::mutex> lock(mutex);
+    cond.wait(lock, [&done](){ return done; });
+    lock.unlock();
+  } else {
+    ch = os->open_collection(cid);	  
+  }
+
+  return ch;
+}
+
+void WriteObject(ObjectStore* os, ObjectStore::CollectionHandle ch, spg_t pg,
+		 const std::string& object, const std::string& content) {
+    std::mutex mutex;
+    std::condition_variable cond;
+    bool done = false;
+
+    ObjectStore::Transaction t;
+    t.register_on_applied(new C_NotifyCond(&mutex, &cond, &done));
+    bufferlist bl;
+    bl.append(content);
+    t.write(ch->get_cid(), 
+            ghobject_t(hobject_t(object, "", CEPH_NOSNAP, pg.ps(), pg.pool(), "")), 
+            0, bl.length(), bl);
+    
+    int r = os->queue_transaction(ch, std::move(t));
+    assert(r == 0);
+
+    std::unique_lock<std::mutex> lock(mutex);
+    cond.wait(lock, [&done](){ return done; });
+    lock.unlock();
+}
+
+
+void OsbenchWorker(ObjectStore *os) {
+  uint32_t i = random() % PG_NUMBER;	
+  LOG(INFO) << "i " << i;
+  ObjectStore::CollectionHandle ch = OpenCollection(os, i);
+  auto pg = spg_t{pg_t{i, POOL_ID}};	 
+  WriteObject(os, ch, pg, "hello.txt", "Hello World!");	  
+}
+
+int init_collections(std::unique_ptr<ObjectStore>& os,
+		     uint64_t pool,
+		     uint64_t count) {
+  assert(count > 0);
+
+  const int split_bits = cbits(count - 1);
+
+  {
+    // propagate Superblock object to ensure proper functioning of tools that
+    // need it. E.g. ceph-objectstore-tool
+    coll_t cid(coll_t::meta());
+    bool exists = os->collection_exists(cid);
+    if (!exists) {
+      auto ch = os->create_new_collection(cid);	
+
+      OSDSuperblock superblock;
+      bufferlist bl;
+      encode(superblock, bl);
+
+      ObjectStore::Transaction t;
+      t.create_collection(cid, split_bits);
+      t.write(cid, OSD_SUPERBLOCK_GOBJECT, 0, bl.length(), bl);
+      int r = os->queue_transaction(ch, std::move(t));
+
+      if (r < 0) {
+        derr << "Failure to write OSD superblock: " << cpp_strerror(-r) << dendl;
+	return r;
+      }
+    }
+  }
+
+  for (uint32_t i = 0; i < count; i++) {
+    auto pg = spg_t{pg_t{i, pool}};	 
+    coll_t cid(pg);
+
+    if (os->collection_exists(cid)) {
+      continue;	    
+    }
+
+    std::mutex mutex;
+    std::condition_variable cond;
+    bool done = false;
+
+    ObjectStore::Transaction t;
+    t.create_collection(cid, split_bits);
+    ghobject_t pgmeta_oid(pg.make_pgmeta_oid());
+    t.touch(cid, pgmeta_oid);
+    t.register_on_applied(new C_NotifyCond(&mutex, &cond, &done));
+    auto ch = os->create_new_collection(cid);
+    int r = os->queue_transaction(ch, std::move(t));
+    assert(r == 0);
 
     std::unique_lock<std::mutex> lock(mutex);
     cond.wait(lock, [&done](){ return done; });
     lock.unlock();
   }
+
+  return 0;
 }
 
-int main(int argc, const char *argv[])
-{
+int main(int argc, const char *argv[]) {
+  srand(time(NULL));	
   Config cfg;
 
-  // command-line arguments
   vector<const char*> args;
   argv_to_vec(argc, argv, args);
 
@@ -163,24 +193,8 @@ int main(int argc, const char *argv[])
     if (ceph_argparse_double_dash(args, i))
       break;
 
-    if (ceph_argparse_witharg(args, i, &val, "--size", (char*)nullptr)) {
-      std::string err;
-      if (!cfg.size.parse(val, &err)) {
-        derr << "error parsing size: " << err << dendl;
-        usage();
-      }
-    } else if (ceph_argparse_witharg(args, i, &val, "--block-size", (char*)nullptr)) {
-      std::string err;
-      if (!cfg.block_size.parse(val, &err)) {
-        derr << "error parsing block-size: " << err << dendl;
-        usage();
-      }
-    } else if (ceph_argparse_witharg(args, i, &val, "--repeats", (char*)nullptr)) {
-      cfg.repeats = atoi(val.c_str());
-    } else if (ceph_argparse_witharg(args, i, &val, "--threads", (char*)nullptr)) {
+    if (ceph_argparse_witharg(args, i, &val, "--threads", (char*)nullptr)) {
       cfg.threads = atoi(val.c_str());
-    } else if (ceph_argparse_flag(args, i, "--multi-object", (char*)nullptr)) {
-      cfg.multi_object = true;
     } else {
       derr << "Error: can't understand argument: " << *i << "\n" << dendl;
       usage();
@@ -188,54 +202,17 @@ int main(int argc, const char *argv[])
   }
 
   common_init_finish(g_ceph_context);
-
-  // create object store
-  dout(0) << "objectstore " << g_conf->osd_objectstore << dendl;
-  dout(0) << "data " << g_conf->osd_data << dendl;
-  dout(0) << "journal " << g_conf->osd_journal << dendl;
-  dout(0) << "size " << cfg.size << dendl;
-  dout(0) << "block-size " << cfg.block_size << dendl;
-  dout(0) << "repeats " << cfg.repeats << dendl;
-  dout(0) << "threads " << cfg.threads << dendl;
+  
+  LOG(INFO) << "objectstore " << g_conf->osd_objectstore;
+  LOG(INFO) << "data " << g_conf->osd_data;
+  LOG(INFO) << "journal " << g_conf->osd_journal;
+  LOG(INFO) << "threads " << cfg.threads;
 
   auto os = std::unique_ptr<ObjectStore>(
       ObjectStore::create(g_ceph_context,
                           g_conf->osd_objectstore,
                           g_conf->osd_data,
                           g_conf->osd_journal));
-
-  //Checking data folder: create if needed or error if it's not empty
-  DIR *dir = ::opendir(g_conf->osd_data.c_str());
-  if (!dir) {
-    std::string cmd("mkdir -p ");
-    cmd+=g_conf->osd_data;
-    int r = ::system( cmd.c_str() );
-    if( r<0 ){
-      derr << "Failed to create data directory, ret = " << r << dendl;
-      return 1;
-    }
-  }
-  else {
-     bool non_empty = readdir(dir) != NULL && readdir(dir) != NULL && readdir(dir) != NULL;
-     if( non_empty ){
-       derr << "Data directory '"<<g_conf->osd_data<<"' isn't empty, please clean it first."<< dendl;
-       return 1;
-     }
-  }
-  ::closedir(dir);
-
-  //Create folders for journal if needed
-  string journal_base = g_conf->osd_journal.substr(0, g_conf->osd_journal.rfind('/'));
-  struct stat sb;
-  if (stat(journal_base.c_str(), &sb) != 0 ){
-    std::string cmd("mkdir -p ");
-    cmd+=journal_base;
-    int r = ::system( cmd.c_str() );
-    if( r<0 ){
-      derr << "Failed to create journal directory, ret = " << r << dendl;
-      return 1;
-    }
-  }
 
   if (!os) {
     derr << "bad objectstore type " << g_conf->osd_objectstore << dendl;
@@ -249,72 +226,29 @@ int main(int argc, const char *argv[])
     derr << "mount failed" << dendl;
     return 1;
   }
-
-  dout(10) << "created objectstore " << os.get() << dendl;
-
-  // create a collection
-  spg_t pg;
-  const coll_t cid(pg);
-  ObjectStore::CollectionHandle ch = os->create_new_collection(cid);
-  {
-    ObjectStore::Transaction t;
-    t.create_collection(cid, 0);
-    os->queue_transaction(ch, std::move(t));
+  
+  /*
+  for (int i = 0; i < 256; ++i) {
+    OpenCollection(os.get(), i);
   }
+  */
+  init_collections(os, POOL_ID, PG_NUMBER);
 
-  // create the objects
-  std::vector<ghobject_t> oids;
-  if (cfg.multi_object) {
-    oids.reserve(cfg.threads);
-    for (int i = 0; i < cfg.threads; i++) {
-      std::stringstream oss;
-      oss << "osbench-thread-" << i;
-      oids.emplace_back(hobject_t(sobject_t(oss.str(), CEPH_NOSNAP)));
-
-      ObjectStore::Transaction t;
-      t.touch(cid, oids[i]);
-      int r = os->queue_transaction(ch, std::move(t));
-      assert(r == 0);
-    }
-  } else {
-    oids.emplace_back(hobject_t(sobject_t("osbench", CEPH_NOSNAP)));
-
-    ObjectStore::Transaction t;
-    t.touch(cid, oids.back());
-    int r = os->queue_transaction(ch, std::move(t));
-    assert(r == 0);
-  }
-
+  //WriteObject(os.get(), ch, "hello.txt", "Hello World!");	  
+  
   // run the worker threads
   std::vector<std::thread> workers;
   workers.reserve(cfg.threads);
 
-  using namespace std::chrono;
-  auto t1 = high_resolution_clock::now();
   for (int i = 0; i < cfg.threads; i++) {
-    const auto &oid = cfg.multi_object ? oids[i] : oids[0];
-    workers.emplace_back(osbench_worker, os.get(), std::ref(cfg),
-                         cid, oid, i * cfg.size / cfg.threads);
+    workers.emplace_back(OsbenchWorker, os.get());
   }
-  for (auto &worker : workers)
+  for (auto &worker : workers) {
     worker.join();
-  auto t2 = high_resolution_clock::now();
+  }
   workers.clear();
 
-  auto duration = duration_cast<microseconds>(t2 - t1);
-  byte_units total = cfg.size * cfg.repeats * cfg.threads;
-  byte_units rate = (1000000LL * total) / duration.count();
-  size_t iops = (1000000LL * total / cfg.block_size) / duration.count();
-  dout(0) << "Wrote " << total << " in "
-      << duration.count() << "us, at a rate of " << rate << "/s and "
-      << iops << " iops" << dendl;
-
-  // remove the objects
-  ObjectStore::Transaction t;
-  for (const auto &oid : oids)
-    t.remove(cid, oid);
-  os->queue_transaction(ch, std::move(t));
-
   os->umount();
-  return 0;
+
+  return 0;	
 }
