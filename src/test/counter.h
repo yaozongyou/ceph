@@ -9,9 +9,6 @@
 #include <mutex>
 #include <string>
 #include <thread>
-//#include "common/system/concurrency/atomic/atomic.h"
-//#include "common/system/concurrency/thread_pool.h"
-//#include "common/system/timer/timer_manager.h"
 
 #define COUNTER_frequency(name, desc) \
     static common::FrequencyCounter FREQUENCY_##name(#name, #desc);   \

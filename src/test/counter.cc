@@ -9,14 +9,8 @@
 #include "common/log_message.h"
 
 using namespace std::chrono_literals;
-//#include "common/system/concurrency/scoped_locker.h"
-//#include "common/system/time/timestamp.h"
-//#include "gflags/gflags.h"
-//#include "glog/logging.h"
 
 namespace common {
-
-//DEFINE_int32(counter_output_interval_secs, 60, "interval secs between each counter output");
 
 FrequencyCounter::FrequencyCounter(const std::string& name, const std::string& desc) :
     name_(name), desc_(desc), times_(0) {
