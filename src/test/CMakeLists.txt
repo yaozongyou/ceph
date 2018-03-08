@@ -165,7 +165,7 @@ if(WITH_KVS)
 endif(WITH_KVS)
 
 # ceph_objectstore_bench
-add_executable(ceph_objectstore_bench objectstore_bench.cc)
+add_executable(ceph_objectstore_bench objectstore_bench.cc counter.cc)
 target_link_libraries(ceph_objectstore_bench os global ${BLKID_LIBRARIES})
 
 if(${WITH_RADOSGW})

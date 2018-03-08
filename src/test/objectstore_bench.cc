@@ -15,6 +15,7 @@
 #include "common/strtol.h"
 #include "common/ceph_argparse.h"
 #include "common/log_message.h"
+#include "counter.h"
 
 #define dout_context g_ceph_context
 #define dout_subsys ceph_subsys_filestore
@@ -23,19 +24,14 @@
 static constexpr int64_t POOL_ID = 0x0000ffffffffffff;
 static constexpr uint32_t PG_NUMBER = 256;
 
-static void usage()
-{
+COUNTER_frequency(write, "write frequency");
+COUNTER_latency(write, "write latency");
+COUNTER_distribution(write, "write distribution");
+
+static void usage() {
   derr << "usage: ceph_objectstore_bench [flags]\n"
-      "	 --size\n"
-      "	       total size in bytes\n"
-      "	 --block-size\n"
-      "	       block size in bytes for each write\n"
-      "	 --repeats\n"
-      "	       number of times to repeat the write cycle\n"
       "	 --threads\n"
-      "	       number of threads to carry out this workload\n"
-      "	 --multi-object\n"
-      "	       have each thread write to a separate object\n" << dendl;
+      "	       number of threads to carry out this workload\n" << dendl;
   generic_server_usage();
 }
 
@@ -48,45 +44,25 @@ class C_NotifyCond : public Context {
   std::condition_variable *cond;
   bool *done;
 public:
-  C_NotifyCond(std::mutex *mutex, std::condition_variable *cond, bool *done)
-    : mutex(mutex), cond(cond), done(done) {}
+  C_NotifyCond(std::mutex *mutex, std::condition_variable *cond, bool *done) : mutex(mutex), cond(cond), done(done) {}
+
   void finish(int r) override {
     std::lock_guard<std::mutex> lock(*mutex);
     *done = true;
     cond->notify_one();
-    LOG(INFO) << "finish r " << r;
   }
 };
 
 ObjectStore::CollectionHandle OpenCollection(ObjectStore* os, uint32_t i) {
   auto pg = spg_t{pg_t{i, POOL_ID}};
   coll_t cid(pg);
-    
-  ObjectStore::CollectionHandle ch;
- 
-  if (!os->collection_exists(cid)) {
-    std::mutex mutex;
-    std::condition_variable cond;
-    bool done = false;
-
-    ch = os->create_new_collection(cid);
-    ObjectStore::Transaction t;
-    t.register_on_applied(new C_NotifyCond(&mutex, &cond, &done));
-    t.create_collection(cid, 0);
-    int r = os->queue_transaction(ch, std::move(t));
-    assert(r == 0);
-    std::unique_lock<std::mutex> lock(mutex);
-    cond.wait(lock, [&done](){ return done; });
-    lock.unlock();
-  } else {
-    ch = os->open_collection(cid);	  
-  }
-
-  return ch;
+  return os->open_collection(cid);	  
 }
 
 void WriteObject(ObjectStore* os, ObjectStore::CollectionHandle ch, spg_t pg,
 		 const std::string& object, const std::string& content) {
+    common::ScopedLatency scoped_latency_write(&LATENCY_write);
+
     std::mutex mutex;
     std::condition_variable cond;
     bool done = false;
@@ -105,15 +81,27 @@ void WriteObject(ObjectStore* os, ObjectStore::CollectionHandle ch, spg_t pg,
     std::unique_lock<std::mutex> lock(mutex);
     cond.wait(lock, [&done](){ return done; });
     lock.unlock();
+
+    FREQUENCY_write.Add();
 }
 
+void OsbenchWorker(ObjectStore* os) {
+  for (int i = 0; i < 1024; ++i) {	
+    uint32_t j = random() % PG_NUMBER;	
+    ObjectStore::CollectionHandle ch = OpenCollection(os, j);
+    auto pg = spg_t{pg_t{j, POOL_ID}};	 
+    uuid_d uuid;
+    uuid.generate_random();
 
-void OsbenchWorker(ObjectStore *os) {
-  uint32_t i = random() % PG_NUMBER;	
-  LOG(INFO) << "i " << i;
-  ObjectStore::CollectionHandle ch = OpenCollection(os, i);
-  auto pg = spg_t{pg_t{i, POOL_ID}};	 
-  WriteObject(os, ch, pg, "hello.txt", "Hello World!");	  
+    uint32_t seed = random();
+    std::string content;
+    for (std::size_t k = 0; k < 2 * 1024 * 1024; k += sizeof(int32_t)) {
+      int32_t random = rand_r(&seed);
+      content.append((char*)(&random), sizeof(random));
+    }   
+
+    WriteObject(os, ch, pg, uuid.to_string(), content);
+  }
 }
 
 int init_collections(std::unique_ptr<ObjectStore>& os,
@@ -177,6 +165,7 @@ int init_collections(std::unique_ptr<ObjectStore>& os,
 }
 
 int main(int argc, const char *argv[]) {
+  common::InitCounterManager();
   srand(time(NULL));	
   Config cfg;
 
@@ -227,15 +216,8 @@ int main(int argc, const char *argv[]) {
     return 1;
   }
   
-  /*
-  for (int i = 0; i < 256; ++i) {
-    OpenCollection(os.get(), i);
-  }
-  */
   init_collections(os, POOL_ID, PG_NUMBER);
 
-  //WriteObject(os.get(), ch, "hello.txt", "Hello World!");	  
-  
   // run the worker threads
   std::vector<std::thread> workers;
   workers.reserve(cfg.threads);
@@ -249,6 +231,7 @@ int main(int argc, const char *argv[]) {
   workers.clear();
 
   os->umount();
+  common::ShutDownCounterManager();
 
   return 0;	
 }
