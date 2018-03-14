@@ -69,6 +69,7 @@
 #include "common/perf_counters.h"
 #include "common/sync_filesystem.h"
 #include "common/fd.h"
+#include "common/log_message.h"
 #include "HashIndex.h"
 #include "DBObjectMap.h"
 #include "kv/KeyValueDB.h"
@@ -577,6 +578,7 @@ FileStore::FileStore(CephContext* cct, const std::string &base,
   m_filestore_max_inline_xattrs(0),
   m_filestore_max_xattr_value_size(0)
 {
+  LOG(INFO) << "filestore_op_threads: " << cct->_conf->filestore_op_threads;	
   m_filestore_kill_at = cct->_conf->filestore_kill_at;
   for (int i = 0; i < m_ondisk_finisher_num; ++i) {
     ostringstream oss;

@@ -86,7 +86,9 @@ void WriteObject(ObjectStore* os, ObjectStore::CollectionHandle ch, spg_t pg,
 }
 
 void OsbenchWorker(ObjectStore* os) {
-  for (int i = 0; i < 1024; ++i) {	
+  //for (int i = 0; i < 1024; ++i) {	
+  time_t begin_time = time(NULL);
+  for (;;) {	
     uint32_t j = random() % PG_NUMBER;	
     ObjectStore::CollectionHandle ch = OpenCollection(os, j);
     auto pg = spg_t{pg_t{j, POOL_ID}};	 
@@ -101,6 +103,10 @@ void OsbenchWorker(ObjectStore* os) {
     }   
 
     WriteObject(os, ch, pg, uuid.to_string(), content);
+
+    if ((time(NULL) - begin_time) >= 300) {
+      break;	    
+    }
   }
 }
 
@@ -191,17 +197,18 @@ int main(int argc, const char *argv[]) {
   }
 
   common_init_finish(g_ceph_context);
-  
-  LOG(INFO) << "objectstore " << g_conf->osd_objectstore;
-  LOG(INFO) << "data " << g_conf->osd_data;
-  LOG(INFO) << "journal " << g_conf->osd_journal;
+ 
+  std::string osd_objectstore = "filestore";
+  std::string osd_data = "./filestore-bench";
+  std::string osd_journal = "./filestore-bench/journal";
+
+  LOG(INFO) << "objectstore " << osd_objectstore;
+  LOG(INFO) << "data " << osd_data;
+  LOG(INFO) << "journal " << osd_journal;
   LOG(INFO) << "threads " << cfg.threads;
 
   auto os = std::unique_ptr<ObjectStore>(
-      ObjectStore::create(g_ceph_context,
-                          g_conf->osd_objectstore,
-                          g_conf->osd_data,
-                          g_conf->osd_journal));
+      ObjectStore::create(g_ceph_context, osd_objectstore, osd_data, osd_journal));
 
   if (!os) {
     derr << "bad objectstore type " << g_conf->osd_objectstore << dendl;
