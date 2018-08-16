@@ -22,6 +22,7 @@
 #include "common/debug.h"
 #include "common/errno.h"
 #include "common/Formatter.h"
+#include "common/log_message.h"
 
 #define dout_subsys ceph_subsys_auth
 
@@ -33,6 +34,8 @@ int KeyRing::from_ceph_context(CephContext *cct)
   const auto& conf = cct->_conf;
   string filename;
 
+  LOG(INFO) << "keyring " << conf->keyring;
+
   int ret = ceph_resolve_file_search(conf->keyring, filename);
   if (!ret) {
     ret = load(cct, filename);
@@ -43,6 +46,8 @@ int KeyRing::from_ceph_context(CephContext *cct)
     lderr(cct) << "unable to find a keyring on " << conf->keyring
 	       << ": " << cpp_strerror(ret) << dendl;
   }
+
+  LOG(INFO) << "conf->key " << conf->key << " conf->name " << conf->name;
 
   if (!conf->key.empty()) {
     EntityAuth ea;

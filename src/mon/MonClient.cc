@@ -34,6 +34,7 @@
 #include "messages/MMonSubscribeAck.h"
 #include "common/errno.h"
 #include "common/LogClient.h"
+#include "common/log_message.h"
 
 #include "MonClient.h"
 #include "MonMap.h"
@@ -385,11 +386,13 @@ void MonClient::handle_config(MConfig *m)
 
 int MonClient::init()
 {
+  LOG(INFO) << "enter MonClient::init";	
   ldout(cct, 10) << __func__ << dendl;
 
   messenger->add_dispatcher_head(this);
 
   entity_name = cct->_conf->name;
+  LOG(INFO) << "entity_name " << entity_name;
 
   Mutex::Locker l(monc_lock);
 
@@ -405,6 +408,7 @@ int MonClient::init()
     method = cct->_conf->auth_client_required;
   auth_supported.reset(new AuthMethodList(cct, method));
   ldout(cct, 10) << "auth_supported " << auth_supported->get_supported_set() << " method " << method << dendl;
+  LOG(INFO) << "auth_supported " << auth_supported->get_supported_set() << " method " << method;
 
   int r = 0;
   keyring.reset(new KeyRing); // initializing keyring anyway
@@ -440,6 +444,7 @@ int MonClient::init()
 
 void MonClient::shutdown()
 {
+  LOG(INFO) << "enter MonClient::shutdown";	
   ldout(cct, 10) << __func__ << dendl;
   monc_lock.Lock();
   while (!version_requests.empty()) {
@@ -478,17 +483,22 @@ void MonClient::shutdown()
 
 int MonClient::authenticate(double timeout)
 {
+  LOG(INFO) << "enter MonClient::authenticate timeout " << timeout;	
   Mutex::Locker lock(monc_lock);
 
+  LOG(INFO) << "111";
   if (active_con) {
     ldout(cct, 5) << "already authenticated" << dendl;
+    LOG(INFO) << "already authenticated";
     return 0;
   }
+  LOG(INFO) << "222";
   _sub_want("monmap", monmap.get_epoch() ? monmap.get_epoch() + 1 : 0, 0);
   _sub_want("config", 0, 0);
   if (!_opened())
     _reopen_session();
 
+  LOG(INFO) << "333";
   utime_t until = ceph_clock_now();
   until += timeout;
   if (timeout > 0.0)
@@ -505,18 +515,24 @@ int MonClient::authenticate(double timeout)
       auth_cond.Wait(monc_lock);
     }
   }
+  LOG(INFO) << "444";
 
   if (active_con) {
     ldout(cct, 5) << __func__ << " success, global_id "
 		  << active_con->get_global_id() << dendl;
+    LOG(INFO) << __func__ << " success, global_id "
+		  << active_con->get_global_id();
     // active_con should not have been set if there was an error
     assert(authenticate_err == 0);
     authenticated = true;
   }
+  LOG(INFO) << "555";
 
   if (authenticate_err < 0 && no_keyring_disabled_cephx) {
     lderr(cct) << __func__ << " NOTE: no keyring found; disabled cephx authentication" << dendl;
+    LOG(INFO) << __func__ << " NOTE: no keyring found; disabled cephx authentication";
   }
+  LOG(INFO) << "666";
 
   return authenticate_err;
 }

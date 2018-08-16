@@ -1,3 +1,16 @@
+add_executable(ceph_test_mon
+  test_mon.cc
+  )
+target_link_libraries(ceph_test_mon
+  os
+  osdc
+  global
+  ${EXTRALIBS}
+  ${CMAKE_DL_LIBS}
+  )
+install(TARGETS ceph_test_mon
+  DESTINATION ${CMAKE_INSTALL_BINDIR})
+
 # ceph_test_mon_workloadgen
 add_executable(ceph_test_mon_workloadgen
   test_mon_workloadgen.cc
