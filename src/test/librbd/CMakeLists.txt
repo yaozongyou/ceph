@@ -148,6 +148,9 @@ target_link_libraries(ceph_test_librbd_api
   librados
   ${UNITTEST_LIBS})
 
+add_executable(rbd_example rbd_example.cc)
+target_link_libraries(rbd_example librbd librados journal global)
+
 add_executable(ceph_test_librbd_fsx
   fsx.cc
   $<TARGET_OBJECTS:common_texttable_obj>
