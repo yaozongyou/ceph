@@ -1,4 +1,5 @@
 #include <iostream>
+#include "common/log_message.h"
 #include "include/rados/librados.hpp"
 #include "include/rbd/librbd.hpp"
 
@@ -33,31 +34,44 @@ int main() {
   librbd::RBD rbd;
   librbd::Image image;
 
+  LOG(INFO) << "before rbd.open";
   error_code = rbd.open(io_ctx, image, "imagea");
   if (error_code != 0) {
     std::cerr << "failed to open image: error_code " << error_code << std::endl;	
     return -1;	  
   }
+  LOG(INFO) << "after rbd.open";
+
 
   ceph::bufferlist bl;
-  bl.append("123");
+  ssize_t bytes_read = image.read(0, 3, bl);
+  std::cout << "bytes_read " << bytes_read << " bl " << std::string(bl.c_str(), bl.length()) << std::endl;
+
+  bl.clear();
+  bl.append("abc");
+  LOG(INFO) << "before image.write";
   ssize_t ret = image.write(0, 3, bl);
   if (ret != 3) {
     std::cerr << "failed to write image: error_code " << error_code << std::endl;	
     return -1;
   }
+  LOG(INFO) << "after image.write";
 
+  LOG(INFO) << "before image.flush";
   error_code = image.flush();
   if (error_code != 0) {
     std::cerr << "failed to flush image: error_code " << error_code << std::endl;	
     return -1;	  
   }
+  LOG(INFO) << "after image.flush";
 
+  LOG(INFO) << "before image.close";
   error_code = image.close(); 
   if (error_code != 0) {
     std::cerr << "failed to close image: error_code " << error_code << std::endl;	
     return -1;	  
   }
+  LOG(INFO) << "after image.close";
 
   rados.shutdown();
   return 0;
