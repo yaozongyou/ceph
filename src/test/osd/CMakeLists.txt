@@ -1,4 +1,7 @@
 # test_rados
+add_executable(osd_map_test osd_map_test.cc)
+target_link_libraries(osd_map_test global mon ${BLKID_LIBRARIES})
+
 add_executable(ceph_test_rados 
   TestRados.cc
   TestOpStat.cc
