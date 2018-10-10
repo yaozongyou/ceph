@@ -273,6 +273,7 @@ PyObject *ActivePyModules::get_python(const std::string &what)
     );
     return f.get();
   } else if (what == "pg_status") {
+    /*
     PyFormatter f;
     cluster_state.with_pgmap(
         [&f](const PGMap &pg_map) {
@@ -280,13 +281,39 @@ PyObject *ActivePyModules::get_python(const std::string &what)
         }
     );
     return f.get();
+    */
+    PyFormatter f;
+
+    PGMap pg_map;
+    bufferlist bl;
+    std::string error_message;
+    bl.read_file("/data/home/richardyao/workspace/github/ceph/build/pgmap_bin.txt", &error_message);
+    bufferlist::const_iterator p = bl.begin();
+    pg_map.decode(p);
+    pg_map.print_summary(&f, nullptr);
+
+    return f.get();
   } else if (what == "pg_dump") {
+    // TODO
+    /*
     PyFormatter f;
     cluster_state.with_pgmap(
       [&f](const PGMap &pg_map) {
 	pg_map.dump(&f);
       }
     );
+    return f.get();
+    */
+    PyFormatter f;
+
+    PGMap pg_map;
+    bufferlist bl;
+    std::string error_message;
+    bl.read_file("/data/home/richardyao/workspace/github/ceph/build/pgmap_bin.txt", &error_message);
+    bufferlist::const_iterator p = bl.begin();
+    pg_map.decode(p);
+    pg_map.dump(&f);
+
     return f.get();
   } else if (what == "devices") {
     PyFormatter f;
@@ -815,11 +842,18 @@ PyObject *ActivePyModules::get_osdmap()
   Mutex::Locker l(lock);
   PyEval_RestoreThread(tstate);
 
+  /*
   OSDMap *newmap = new OSDMap;
 
   cluster_state.with_osdmap([&](const OSDMap& o) {
       newmap->deepish_copy_from(o);
     });
+  */
+  OSDMap *newmap = new OSDMap;
+  std::string error_message;
+  bufferlist bl; 
+  bl.read_file("/data/home/richardyao/workspace/github/ceph/build/osdmap_bin.txt", &error_message);
+  newmap->decode(bl);
 
   return construct_with_capsule("mgr_module", "OSDMap", (void*)newmap);
 }

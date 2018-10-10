@@ -2,6 +2,22 @@
 #include "osd/OSDMap.h"
 #include "mon/PGMap.h"
 
+void calc_eval(OSDMap &osdmap) {
+  set<int> roots;
+  osdmap.crush->find_takes(&roots);
+
+  std::cout << "roots " << roots << std::endl;
+  for (auto rootid : roots) {
+    std::cout << "rootid " << rootid << std::endl;	  
+	//osdmap.get_pools_by_take(rootid);
+	//
+	map<int,float> pmap;
+    osdmap.crush->get_take_weight_osd_map(rootid, &pmap);
+	std::cout << "pmap " << pmap << std::endl;
+  }
+
+}
+
 int main(int argc, char* argv[]) {
   std::cout << "Hello World!" << std::endl;
   std::string error_message;
@@ -25,11 +41,19 @@ int main(int argc, char* argv[]) {
   std::cout << std::endl;
 
 
+  /*
   std::cout << std::endl;
   JSONFormatter ff = JSONFormatter(true);
   osdmap.crush->dump(&ff);
   ff.flush(std::cout);
   std::cout << std::endl;
+	*/
+
+  /*
+  set<int> roots;
+  osdmap.crush->find_takes(&roots);
+  std::cout << "roots " << roots << std::endl;
+  */
 
   pg_t pg;
   pg.parse("1.0");
@@ -53,12 +77,16 @@ int main(int argc, char* argv[]) {
 	p = bl.begin();
     pgmap.decode(p);
 
+	/*
 	std::cout << std::endl;
     JSONFormatter f = JSONFormatter(true);
 	pgmap.dump(&f);
 	f.flush(std::cout);
 	std::cout << std::endl;
+	*/
   }
+
+  calc_eval(osdmap);
 
   return 0;
 }

@@ -643,24 +643,26 @@ class Module(MgrModule):
 
     def optimize(self, plan):
         self.log.info('Optimize plan %s' % plan.name)
-        plan.mode = self.get_config('mode', default_mode)
+        #plan.mode = self.get_config('mode', default_mode)
+        plan.mode = 'crush-compat'
         max_misplaced = float(self.get_config('max_misplaced',
                                               default_max_misplaced))
         self.log.info('Mode %s, max misplaced %f' %
                       (plan.mode, max_misplaced))
 
         info = self.get('pg_status')
+        self.log.info(info)
         unknown = info.get('unknown_pgs_ratio', 0.0)
         degraded = info.get('degraded_ratio', 0.0)
         inactive = info.get('inactive_pgs_ratio', 0.0)
         misplaced = info.get('misplaced_ratio', 0.0)
         self.log.debug('unknown %f degraded %f inactive %f misplaced %g',
                        unknown, degraded, inactive, misplaced)
-        if unknown > 0.0:
-            detail = 'Some PGs (%f) are unknown; try again later' % unknown
-            self.log.info(detail)
-            return -errno.EAGAIN, detail
-        elif degraded > 0.0:
+        #if unknown > 0.0:
+        #    detail = 'Some PGs (%f) are unknown; try again later' % unknown
+        #    self.log.info(detail)
+        #    return -errno.EAGAIN, detail
+        if degraded > 0.0:
             detail = 'Some objects (%f) are degraded; try again later' % degraded
             self.log.info(detail)
             return -errno.EAGAIN, detail
@@ -754,10 +756,11 @@ class Module(MgrModule):
                             if b < 1.0 and b > 0.0 ]
 
         # get current compat weight-set weights
-        orig_ws = self.get_compat_weight_set_weights(ms)
+        orig_ws = self.get_compat_weight_set_weights(ms, crush)
         if not orig_ws:
             return -errno.EAGAIN, 'compat weight-set not available'
         orig_ws = { a: b for a, b in six.iteritems(orig_ws) if a >= 0 }
+        self.log.info('orig_ws %s', orig_ws)
 
         # Make sure roots don't overlap their devices.  If so, we
         # can't proceed.
@@ -818,6 +821,8 @@ class Module(MgrModule):
                         if deviation == 0:
                             break
                         self.log.debug('osd.%d deviation %f', osd, deviation)
+                        self.log.info('osd.%d deviation %f', osd, deviation)
+                        self.log.info('aaa best_ws %s', best_ws)
                         weight = best_ws[osd]
                         ow = orig_osd_weight[osd]
                         if actual[osd] > 0:
@@ -907,38 +912,20 @@ class Module(MgrModule):
             return -errno.EDOM, 'Unable to find further optimization, ' \
                                 'change balancer mode and retry might help'
 
-    def get_compat_weight_set_weights(self, ms):
-        if not CRUSHMap.have_default_choose_args(ms.crush_dump):
-            # enable compat weight-set first
-            self.log.debug('ceph osd crush weight-set create-compat')
-            result = CommandResult('')
-            self.send_command(result, 'mon', '', json.dumps({
-                'prefix': 'osd crush weight-set create-compat',
-                'format': 'json',
-            }), '')
-            r, outb, outs = result.wait()
-            if r != 0:
-                self.log.error('Error creating compat weight-set')
-                return
-
-            result = CommandResult('')
-            self.send_command(result, 'mon', '', json.dumps({
-                'prefix': 'osd crush dump',
-                'format': 'json',
-            }), '')
-            r, outb, outs = result.wait()
-            if r != 0:
-                self.log.error('Error dumping crush map')
-                return
-            try:
-                crushmap = json.loads(outb)
-            except:
-                raise RuntimeError('unable to parse crush map')
-        else:
-            crushmap = ms.crush_dump
+    def get_compat_weight_set_weights(self, ms, crush):
+        crushmap = ms.crush_dump
+        self.log.debug('0000 %s' % crushmap)
 
         raw = CRUSHMap.get_default_choose_args(crushmap)
+        self.log.debug('1111 %s' % raw)
         weight_set = {}
+
+        for i in range(396):
+            weight_set[i] = crush.get_item_weight(i)
+
+        self.log.debug('weight_set weights %s' % weight_set)
+        return weight_set
+
         for b in raw:
             bucket = None
             for t in crushmap['buckets']:

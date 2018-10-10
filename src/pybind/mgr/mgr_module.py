@@ -135,6 +135,9 @@ class OSDMap(ceph_module.BasePyOSDMap):
     def map_pool_pgs_up(self, poolid):
         return self._map_pool_pgs_up(poolid)
 
+    def get_weightf(self, osd_id):
+        return self._get_weightf(osd_id)
+
     def pg_to_up_acting_osds(self, pool_id, ps):
         return self._pg_to_up_acting_osds(pool_id, ps)
 
