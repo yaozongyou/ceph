@@ -86,6 +86,11 @@ add_executable(osdmaptool ${osdomaptool_srcs})
 target_link_libraries(osdmaptool global)
 install(TARGETS osdmaptool DESTINATION bin)
 
+set(pgmaptool_srcs pgmaptool.cc)
+add_executable(pgmaptool ${pgmaptool_srcs})
+target_link_libraries(pgmaptool global mon)
+install(TARGETS pgmaptool DESTINATION bin)
+
 if(WITH_TESTS)
 set(ceph_psim_srcs psim.cc)
 add_executable(ceph_psim ${ceph_psim_srcs})
