@@ -247,6 +247,13 @@ target_link_libraries(radosgw-admin rgw_a librados
   ${CURL_LIBRARIES} ${EXPAT_LIBRARIES} ${BLKID_LIBRARIES})
 install(TARGETS radosgw-admin DESTINATION bin)
 
+set(radosgw_bench_srcs
+  bench/rgw_bench.cc
+  bench/rgw_s3_client.cc)
+add_executable(radosgw-bench ${radosgw_bench_srcs})
+target_link_libraries(radosgw-bench ${CURL_LIBRARIES} OpenSSL::Crypto)
+install(TARGETS radosgw-bench DESTINATION bin)
+
 set(radosgw_es_srcs
   rgw_es_main.cc)
 add_executable(radosgw-es ${radosgw_es_srcs})
