@@ -4,8 +4,10 @@
 #include "rgw_s3_client.h"
 #include <cstring>
 #include <iostream>
+#include <regex>
 #include <openssl/hmac.h>
 #include "rgw/rgw_b64.h"
+#include "rapidxml/rapidxml.hpp"
 
 RGWS3Client::RGWS3Client(
     const std::string& rgw_address, const std::string& access_key, const std::string& secret_key) 
@@ -246,7 +248,7 @@ bool RGWS3Client::list_objects(
     const std::string& prefix,
     bool* is_truncated,
     std::string* next_marker,
-    std::vector<std::string>* objects,
+    std::vector<std::string>* keys,
     std::vector<std::string>* dirs) {
   std::string query_string;
   if (!delimiter.empty()) {
@@ -313,48 +315,32 @@ bool RGWS3Client::list_objects(
     return false;
   }
 
-  /*
-    rapidxml::xml_document<> doc;
-    doc.parse<0>(const_cast<char*>(response_body_.c_str()));
-    rapidxml::xml_node<>* root = doc.first_node();
+  rapidxml::xml_document<> doc;
+  doc.parse<0>(const_cast<char*>(response_body.c_str()));
+  rapidxml::xml_node<>* root = doc.first_node();
 
-    rapidxml::xml_node<>* node = root->first_node("IsTruncated");
-    if ((node != NULL) && (strcmp(node->value(), "true") == 0)) {
-        *is_truncated = true;
-    } else {
-        *is_truncated = false;
-    }
-    node = root->first_node("NextMarker");
-    if (node != NULL) {
-        *next_marker = node->value();
-    }
-    node = root->first_node("Contents");
+  rapidxml::xml_node<>* node = root->first_node("IsTruncated");
+  if ((node != NULL) && (strcmp(node->value(), "true") == 0)) {
+    *is_truncated = true;
+  } else {
+    *is_truncated = false;
+  }
+  node = root->first_node("NextMarker");
+  if (node != NULL) {
+    *next_marker = node->value();
+  }
+  
+  node = root->first_node("Contents");
+  while (node != NULL) {
+    keys->push_back(node->first_node("Key")->value());
+    node = node->next_sibling("Contents");
+  }
 
-
-
-    while (node != NULL) {
-        ObjectInfo object_info;
-        object_info.key = node->first_node("Key")->value();
-        object_info.last_modified = node->first_node("LastModified")->value();
-        object_info.etag = node->first_node("ETag")->value();
-        object_info.size = node->first_node("Size")->value();
-        object_info.storage_class = node->first_node("StorageClass")->value();
-        object_info.owner_id = node->first_node("Owner")->first_node("ID")->value();
-        object_info.owner_display_name = node->first_node("Owner")->first_node("DisplayName")->value();
-
-        objects->push_back(object_info);
-
-        node = node->next_sibling("Contents");
-    }
-
-
-    node = root->first_node("CommonPrefixes");
-    while (node != NULL) {
-        std::string dir = node->first_node("Prefix")->value();
-        dirs->push_back(dir);
-        node = node->next_sibling("CommonPrefixes");
-    }
-    */
+  node = root->first_node("CommonPrefixes");
+  while (node != NULL) {
+    dirs->push_back(node->first_node("Prefix")->value());
+    node = node->next_sibling("CommonPrefixes");
+  }
 
   return true;
 }

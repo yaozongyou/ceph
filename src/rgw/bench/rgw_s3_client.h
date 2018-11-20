@@ -34,7 +34,7 @@ class RGWS3Client {
       const std::string& prefix,
       bool* is_truncated,
       std::string* next_marker,
-      std::vector<std::string>* objects,
+      std::vector<std::string>* keys,
       std::vector<std::string>* dirs);
 
 private:

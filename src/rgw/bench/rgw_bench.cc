@@ -31,8 +31,28 @@ int main(int argc, const char* argv[]) {
 
   s3_client.create_bucket("test_bucket");
   std::string_view content = "Hello World!";
-  s3_client.put_object("test_bucket", "hello.txt", content.size(), CurlReadCallbackWrapper, &content);
-  
+  s3_client.put_object("test_bucket", "hello_1.txt", content.size(), CurlReadCallbackWrapper, &content);
+  s3_client.put_object("test_bucket", "hello_2.txt", content.size(), CurlReadCallbackWrapper, &content);
+  s3_client.put_object("test_bucket", "hello_3.txt", content.size(), CurlReadCallbackWrapper, &content);
+  s3_client.put_object("test_bucket", "a/hello_1.txt", content.size(), CurlReadCallbackWrapper, &content);
+  s3_client.put_object("test_bucket", "a/hello_2.txt", content.size(), CurlReadCallbackWrapper, &content);
+  s3_client.put_object("test_bucket", "a/hello_3.txt", content.size(), CurlReadCallbackWrapper, &content);
+
+
+
+  bool is_truncated = false;
+  std::string next_marker;
+  std::vector<std::string> keys;
+  std::vector<std::string> dirs;
+  s3_client.list_objects("test_bucket", "/", "", 1000, "", &is_truncated, &next_marker, &keys, &dirs);
+  std::cout << "is_truncated " << is_truncated << " next_marker " << next_marker << std::endl;
+  for (auto key : keys) {
+    std::cout << "key " << key << std::endl;
+  }
+  for (auto dir : dirs) {
+    std::cout << "dir " << dir << std::endl;
+  }
+
   std::string aaa;
   s3_client.get_object("test_bucket", "hello.txt", CurlWriteCallbackWrapper, &aaa);
   std::cout << "content " << aaa << std::endl;
