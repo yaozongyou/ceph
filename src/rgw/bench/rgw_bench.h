@@ -15,6 +15,8 @@ class RGWBench {
     std::string secret_key = "h7GhxuBLTrlhVUyxSPUKUV8r/2EI4ngqJxD7iBdBYLhwluN30JaT3Q==";
     int thread_number = 1;
     int object_size = 1024 * 1024;
+    int object_count = 1024;
+    int bench_secs = 10;
   };
 
   RGWBench(CephContext* cct, const Config& config);

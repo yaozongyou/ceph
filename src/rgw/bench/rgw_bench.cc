@@ -39,12 +39,12 @@ bool RGWBench::prepare() {
 
 void RGWBench::worker() {
   RGWS3Client s3_client(config_.rgw_address, config_.access_key, config_.secret_key);
+  std::default_random_engine generator(std::chrono::system_clock::now().time_since_epoch().count());
+  std::uniform_int_distribution<> dis(0, config_.object_count-1);
 
-  for (int i = 0; i < 1; i++) {
-    struct uuid_d uuid;
-    uuid.generate_random();
-    std::string key = uuid.to_string();
-
+  time_t start_timestamp = time(NULL);
+  while ((time(NULL) - start_timestamp) < config_.bench_secs) {
+    std::string key = std::to_string(dis(generator));
     std::size_t content_length = config_.object_size;
     s3_client.put_object("radosgw-bench-bucket", key, content_length, curl_read_callback_wrapper, &content_length);
   }
