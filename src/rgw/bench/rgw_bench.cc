@@ -1,64 +1,149 @@
 // -*- mode:C++; tab-width:8; c-basic-offset:2; indent-tabs-mode:t -*-
 // vim: ts=8 sw=2 smarttab
 
+#include "rgw_bench.h"
+#include <getopt.h>
 #include <cstring>
 #include <iostream>
+#include <thread> 
 #include "rgw_s3_client.h"
+#include "include/uuid.h"
 
-static size_t CurlReadCallbackWrapper(char *buffer, size_t size, size_t nitems, void *instream) {
-  if (instream == nullptr) {
-    return 0;
-  }
-  std::string_view* content = static_cast<std::string_view*>(instream);
-  std::size_t length = std::min(size * nitems, content->size());
-  memcpy(buffer, content->data(), length);
-  content->remove_prefix(length);
+RGWBench::RGWBench(CephContext* cct, const Config& config) : cct_(cct), config_(config) {
+}
+
+RGWBench::~RGWBench() {
+}
+
+static size_t curl_read_callback_wrapper(char *buffer, size_t size, size_t nitems, void *instream) {
+  std::size_t* content_length = static_cast<std::size_t*>(instream);
+  std::size_t length = std::min(size * nitems, *content_length);
+  *content_length -= length;
   return length;
 }
 
+/*
 static size_t CurlWriteCallbackWrapper(char *ptr, size_t size, size_t nmemb, void *userdata) {
   if (userdata != nullptr) {
     (static_cast<std::string*>(userdata))->append(ptr, size * nmemb);
   }
   return size * nmemb;
 }
-
-int main(int argc, const char* argv[]) {
-  std::string rgw_address = "127.0.0.1:8000";
-  std::string access_key = "0555b35654ad1656d804";
-  std::string secret_key = "h7GhxuBLTrlhVUyxSPUKUV8r/2EI4ngqJxD7iBdBYLhwluN30JaT3Q==";
-  RGWS3Client s3_client(rgw_address, access_key, secret_key);
-
-  s3_client.create_bucket("test_bucket");
-  std::string_view content = "Hello World!";
-  s3_client.put_object("test_bucket", "hello_1.txt", content.size(), CurlReadCallbackWrapper, &content);
-  s3_client.put_object("test_bucket", "hello_2.txt", content.size(), CurlReadCallbackWrapper, &content);
-  s3_client.put_object("test_bucket", "hello_3.txt", content.size(), CurlReadCallbackWrapper, &content);
-  s3_client.put_object("test_bucket", "a/hello_1.txt", content.size(), CurlReadCallbackWrapper, &content);
-  s3_client.put_object("test_bucket", "a/hello_2.txt", content.size(), CurlReadCallbackWrapper, &content);
-  s3_client.put_object("test_bucket", "a/hello_3.txt", content.size(), CurlReadCallbackWrapper, &content);
+*/
 
 
+bool RGWBench::prepare() {
+  RGWS3Client s3_client(config_.rgw_address, config_.access_key, config_.secret_key);
+  return s3_client.create_bucket("radosgw-bench-bucket");
+}
 
-  bool is_truncated = false;
-  std::string next_marker;
-  std::vector<std::string> keys;
-  std::vector<std::string> dirs;
-  s3_client.list_objects("test_bucket", "/", "", 1000, "", &is_truncated, &next_marker, &keys, &dirs);
-  std::cout << "is_truncated " << is_truncated << " next_marker " << next_marker << std::endl;
-  for (auto key : keys) {
-    std::cout << "key " << key << std::endl;
+void RGWBench::worker() {
+  RGWS3Client s3_client(config_.rgw_address, config_.access_key, config_.secret_key);
+
+  for (int i = 0; i < 1; i++) {
+    struct uuid_d uuid;
+    uuid.generate_random();
+    std::string key = uuid.to_string();
+
+    std::size_t content_length = config_.object_size;
+    s3_client.put_object("radosgw-bench-bucket", key, content_length, curl_read_callback_wrapper, &content_length);
   }
-  for (auto dir : dirs) {
-    std::cout << "dir " << dir << std::endl;
+}
+
+void RGWBench::execute() {
+  std::vector<std::thread> workers;
+
+  for (int i = 0; i < config_.thread_number; i++) {
+    workers.push_back(std::thread(&RGWBench::worker, this));
   }
 
-  std::string aaa;
-  s3_client.get_object("test_bucket", "hello.txt", CurlWriteCallbackWrapper, &aaa);
-  std::cout << "content " << aaa << std::endl;
+  for (int i = 0; i < config_.thread_number; ++i) {
+    workers[i].join();
+  }
+}
 
-  s3_client.delete_object("test_bucket", "hello.txt");
-  s3_client.remove_bucket("test_bucket");
+bool RGWBench::cleanup() {
+  class WQ : public ThreadPool::WorkQueueVal<std::string> {
+   public:
+    WQ(std::string n, time_t ti, time_t sti, ThreadPool *p, Config *config) : 
+        ThreadPool::WorkQueueVal<std::string>(std::move(n), ti, sti, p), config_(config) {
+    }
 
-  return 0;
+    void _enqueue(std::string s) override {
+      queue_.push_back(s);
+    }
+
+    void _enqueue_front(std::string s) override {
+      queue_.push_front(s);
+    }
+
+    bool _empty() override {
+      return queue_.empty();
+    }
+
+    std::string _dequeue() override {
+      std::string s = queue_.front();
+      queue_.pop_front();
+      return s;
+    }
+    
+    void _process(std::string key, ThreadPool::TPHandle &) override {
+      std::cout << "key " << key << std::endl;
+      RGWS3Client s3_client(config_->rgw_address, config_->access_key, config_->secret_key);
+      s3_client.delete_object("radosgw-bench-bucket", key);
+    }
+
+   private:
+    std::list<std::string> queue_;
+    Config* config_;
+  };
+ 
+  ThreadPool p(cct_, "", "", 10, nullptr);
+  WQ wq("", 10, 10, &p, &config_);
+  p.start();
+
+  std::list<std::string> prefixes;
+  prefixes.push_front("");
+
+  RGWS3Client s3_client(config_.rgw_address, config_.access_key, config_.secret_key);
+
+  while (!prefixes.empty()) {
+    std::string prefix = prefixes.front();
+    prefixes.pop_front();
+
+    for (;;) {
+      bool is_truncated = false;
+      std::string next_marker;
+      std::vector<std::string> keys;
+      std::vector<std::string> dirs;
+
+      s3_client.list_objects(
+	  "radosgw-bench-bucket",
+	  "/",  // delimiter
+	  next_marker,
+	  1000, // max_keys
+	  prefix,
+	  &is_truncated, &next_marker, &keys, &dirs);
+
+      for (std::vector<std::string>::const_iterator iter = dirs.begin(); iter != dirs.end(); ++iter) {
+	prefixes.push_front(*iter);
+      }
+
+      for (std::vector<std::string>::const_iterator iter = keys.begin();
+	  iter != keys.end(); ++iter) {
+	wq.queue(*iter);
+      }
+
+      if (!is_truncated) {
+	break;
+      }
+    }
+  }
+
+  wq.drain();
+  p.stop();
+
+  s3_client.remove_bucket("radosgw-bench-bucket");
+
+  return true;
 }
