@@ -26,17 +26,6 @@ class RGWS3Client {
       write_callback_t* callback, void* user_data);
   bool delete_object(const std::string& bucket, const std::string& key);
 
-  bool list_objects(
-      const std::string& bucket,
-      const std::string& delimiter,
-      const std::string& marker,
-      int max_keys,
-      const std::string& prefix,
-      bool* is_truncated,
-      std::string* next_marker,
-      std::vector<std::string>* keys,
-      std::vector<std::string>* dirs);
-
 private:
   void reset();
   std::string get_date();

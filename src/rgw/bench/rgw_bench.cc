@@ -63,85 +63,10 @@ void RGWBench::execute() {
 }
 
 bool RGWBench::cleanup() {
-  class WQ : public ThreadPool::WorkQueueVal<std::string> {
-   public:
-    WQ(std::string n, time_t ti, time_t sti, ThreadPool *p, Config *config) : 
-        ThreadPool::WorkQueueVal<std::string>(std::move(n), ti, sti, p), config_(config) {
-    }
-
-    void _enqueue(std::string s) override {
-      queue_.push_back(s);
-    }
-
-    void _enqueue_front(std::string s) override {
-      queue_.push_front(s);
-    }
-
-    bool _empty() override {
-      return queue_.empty();
-    }
-
-    std::string _dequeue() override {
-      std::string s = queue_.front();
-      queue_.pop_front();
-      return s;
-    }
-    
-    void _process(std::string key, ThreadPool::TPHandle &) override {
-      std::cout << "key " << key << std::endl;
-      RGWS3Client s3_client(config_->rgw_address, config_->access_key, config_->secret_key);
-      s3_client.delete_object("radosgw-bench-bucket", key);
-    }
-
-   private:
-    std::list<std::string> queue_;
-    Config* config_;
-  };
- 
-  ThreadPool p(cct_, "", "", 10, nullptr);
-  WQ wq("", 10, 10, &p, &config_);
-  p.start();
-
-  std::list<std::string> prefixes;
-  prefixes.push_front("");
-
   RGWS3Client s3_client(config_.rgw_address, config_.access_key, config_.secret_key);
-
-  while (!prefixes.empty()) {
-    std::string prefix = prefixes.front();
-    prefixes.pop_front();
-
-    for (;;) {
-      bool is_truncated = false;
-      std::string next_marker;
-      std::vector<std::string> keys;
-      std::vector<std::string> dirs;
-
-      s3_client.list_objects(
-	  "radosgw-bench-bucket",
-	  "/",  // delimiter
-	  next_marker,
-	  1000, // max_keys
-	  prefix,
-	  &is_truncated, &next_marker, &keys, &dirs);
-
-      for (std::vector<std::string>::const_iterator iter = dirs.begin(); iter != dirs.end(); ++iter) {
-	prefixes.push_front(*iter);
-      }
-
-      for (std::vector<std::string>::const_iterator iter = keys.begin();
-	  iter != keys.end(); ++iter) {
-	wq.queue(*iter);
-      }
-
-      if (!is_truncated) {
-	break;
-      }
-    }
+  for (int i = 0; i < config_.object_count; ++i) {
+    s3_client.delete_object("radosgw-bench-bucket", std::to_string(i));
   }
-
-  wq.drain();
-  p.stop();
 
   s3_client.remove_bucket("radosgw-bench-bucket");
 

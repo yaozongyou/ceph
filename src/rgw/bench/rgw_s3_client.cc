@@ -7,7 +7,6 @@
 #include <regex>
 #include <openssl/hmac.h>
 #include "rgw/rgw_b64.h"
-#include "rapidxml/rapidxml.hpp"
 
 RGWS3Client::RGWS3Client(
     const std::string& rgw_address, const std::string& access_key, const std::string& secret_key) 
@@ -235,111 +234,6 @@ bool RGWS3Client::get_object(const std::string& bucket, const std::string& key,
   if (http_status_code != 200) {
     std::cerr << "failed to get object http_status_code: " << http_status_code << std::endl;
     return false;
-  }
-
-  return true;
-}
-  
-bool RGWS3Client::list_objects(
-    const std::string& bucket,
-    const std::string& delimiter,
-    const std::string& marker,
-    int max_keys,
-    const std::string& prefix,
-    bool* is_truncated,
-    std::string* next_marker,
-    std::vector<std::string>* keys,
-    std::vector<std::string>* dirs) {
-  std::string query_string;
-  if (!delimiter.empty()) {
-    if (query_string.empty()) {
-      query_string += "delimiter=" + delimiter;
-    } else {
-      query_string += "&delimiter=" + delimiter;
-    }
-  }
-  if (!marker.empty()) {
-    if (query_string.empty()) {
-      query_string += "marker=" + marker;
-    } else {
-      query_string += "&marker=" + marker;
-    }
-  }
-  if (max_keys != 1000) {
-    if (query_string.empty()) {
-      query_string += "max-keys=" + std::to_string(max_keys);
-    } else {
-      query_string += "&max-keys=" + std::to_string(max_keys);
-    }
-  }
-  if (!prefix.empty()) {
-    if (query_string.empty()) {
-      query_string += "prefix=" + prefix;
-    } else {
-      query_string += "&prefix=" + prefix;
-    }
-  }
-
-  std::string date = get_date();
-  std::string string_to_sign =
-      "GET\n"
-      "\n"
-      "\n" +
-      date + "\n" +
-      "/" + bucket + "/";
-  std::string signature = "AWS " + access_key_ + ":" + create_signature(string_to_sign);
-  struct curl_slist* header = curl_slist_append(nullptr, ("Authorization: " + signature).c_str());
-  header = curl_slist_append(header, ("Date: " + date).c_str());
-
-  reset();
-
-  std::string response_body;
-  std::string url = "http://" + rgw_address_ + "/" + bucket + "/" + (query_string.empty() ? "" : ("?" + query_string));
-  curl_easy_setopt(curl_, CURLOPT_URL, url.c_str());
-  curl_easy_setopt(curl_, CURLOPT_HTTPHEADER, header);
-  curl_easy_setopt(curl_, CURLOPT_WRITEFUNCTION, CurlWriteCallbackWrapper);
-  curl_easy_setopt(curl_, CURLOPT_WRITEDATA, &response_body);
-  CURLcode curl_code = curl_easy_perform(curl_);
-  curl_slist_free_all(header);
-
-  if (curl_code != CURLE_OK) {
-    std::cerr << "curl_easy_perform failed: curl_code " << curl_code
-        << " curl_message " << curl_easy_strerror(curl_code) << std::endl;
-    return false;
-  }
-
-  long http_status_code = 0;
-  curl_easy_getinfo(curl_, CURLINFO_RESPONSE_CODE, &http_status_code);
-  if (http_status_code != 200) {
-    std::cerr << "list objects failed: http_status_code " << http_status_code << std::endl;
-    return false;
-  }
-
-  rapidxml::xml_document<> doc;
-  doc.parse<0>(const_cast<char*>(response_body.c_str()));
-  rapidxml::xml_node<>* root = doc.first_node();
-
-  rapidxml::xml_node<>* node = root->first_node("IsTruncated");
-  if ((node != NULL) && (strcmp(node->value(), "true") == 0)) {
-    *is_truncated = true;
-  } else {
-    *is_truncated = false;
-  }
-  node = root->first_node("NextMarker");
-  if (node != NULL) {
-    *next_marker = node->value();
-  }
-  
-  node = root->first_node("Contents");
-  while (node != NULL) {
-    keys->push_back(node->first_node("Key")->value());
-    node = node->next_sibling("Contents");
-  }
-
-  node = root->first_node("CommonPrefixes");
-  while (node != NULL) {
-    dirs->push_back(node->first_node("Prefix")->value());
-    node = node->next_sibling("CommonPrefixes");
   }
 
   return true;
