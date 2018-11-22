@@ -17,7 +17,7 @@ class RGWBench {
     int thread_number = 8;
     int object_size = 16 * 1024 * 1024;
     int object_count = 1;
-    int bench_secs = 10;
+    int bench_secs = 600;
   };
 
   RGWBench(const Config& config);

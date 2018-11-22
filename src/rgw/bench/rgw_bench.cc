@@ -7,7 +7,6 @@
 #include <iostream>
 #include <thread> 
 #include "rgw_s3_client.h"
-#include "common/log_message.h"
 
 RGWBench::RGWBench(const Config& config) : config_(config) {
 }
@@ -82,7 +81,6 @@ void RGWBench::execute() {
 
 bool RGWBench::cleanup() {
   std::cout << "start to cleanup" << std::endl;
-  LOG(INFO) << "start to cleanup";
   std::vector<std::thread> threads;
   for (int i = 0; i < config_.thread_number; i++) {
     threads.push_back(std::thread([this, i]{
@@ -103,7 +101,6 @@ bool RGWBench::cleanup() {
   s3_client.remove_bucket("radosgw-bench-bucket");
   
   std::cout << "cleanup finished" << std::endl;
-  LOG(INFO) << "cleanup finished";
 
   return true;
 }
