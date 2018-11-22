@@ -7,9 +7,9 @@
 #include <iostream>
 #include <thread> 
 #include "rgw_s3_client.h"
-#include "include/uuid.h"
+#include "common/log_message.h"
 
-RGWBench::RGWBench(CephContext* cct, const Config& config) : cct_(cct), config_(config) {
+RGWBench::RGWBench(const Config& config) : config_(config) {
 }
 
 RGWBench::~RGWBench() {
@@ -22,19 +22,33 @@ static size_t curl_read_callback_wrapper(char *buffer, size_t size, size_t nitem
   return length;
 }
 
-/*
-static size_t CurlWriteCallbackWrapper(char *ptr, size_t size, size_t nmemb, void *userdata) {
+static size_t curl_write_callback_wrapper(char *ptr, size_t size, size_t nmemb, void *userdata) {
   if (userdata != nullptr) {
     (static_cast<std::string*>(userdata))->append(ptr, size * nmemb);
   }
   return size * nmemb;
 }
-*/
-
 
 bool RGWBench::prepare() {
+  std::cout << "prepare bench environment" << std::endl;
   RGWS3Client s3_client(config_.rgw_address, config_.access_key, config_.secret_key);
-  return s3_client.create_bucket("radosgw-bench-bucket");
+  if (!s3_client.create_bucket("radosgw-bench-bucket")) {
+    std::cout << "failed to create bucket" << std::endl;
+    return false;
+  }
+
+  if (config_.bench_type == "read") {
+    RGWS3Client s3_client(config_.rgw_address, config_.access_key, config_.secret_key);
+
+    for (int i = 0; i < config_.object_count; ++i) {
+      std::string key = std::to_string(i);
+      std::size_t content_length = config_.object_size;
+      s3_client.put_object("radosgw-bench-bucket", key, content_length, curl_read_callback_wrapper, &content_length);
+    }
+  }
+
+  std::cout << "prepare success" << std::endl;
+  return true;
 }
 
 void RGWBench::worker() {
@@ -43,32 +57,53 @@ void RGWBench::worker() {
   std::uniform_int_distribution<> dis(0, config_.object_count-1);
 
   time_t start_timestamp = time(NULL);
-  while ((time(NULL) - start_timestamp) < config_.bench_secs) {
+  while ((time(NULL) - start_timestamp) <= config_.bench_secs) {
     std::string key = std::to_string(dis(generator));
-    std::size_t content_length = config_.object_size;
-    s3_client.put_object("radosgw-bench-bucket", key, content_length, curl_read_callback_wrapper, &content_length);
+    
+    if (config_.bench_type == "write") {
+      std::size_t content_length = config_.object_size;
+      s3_client.put_object("radosgw-bench-bucket", key, content_length, curl_read_callback_wrapper, &content_length);
+    } else {
+      s3_client.get_object("radosgw-bench-bucket", key, curl_write_callback_wrapper, nullptr);
+    }
   }
 }
 
 void RGWBench::execute() {
-  std::vector<std::thread> workers;
-
+  std::vector<std::thread> threads;
   for (int i = 0; i < config_.thread_number; i++) {
-    workers.push_back(std::thread(&RGWBench::worker, this));
+    threads.push_back(std::thread(&RGWBench::worker, this));
   }
 
-  for (int i = 0; i < config_.thread_number; ++i) {
-    workers[i].join();
+  for (auto& thread : threads) {
+    thread.join();
   }
 }
 
 bool RGWBench::cleanup() {
-  RGWS3Client s3_client(config_.rgw_address, config_.access_key, config_.secret_key);
-  for (int i = 0; i < config_.object_count; ++i) {
-    s3_client.delete_object("radosgw-bench-bucket", std::to_string(i));
+  std::cout << "start to cleanup" << std::endl;
+  LOG(INFO) << "start to cleanup";
+  std::vector<std::thread> threads;
+  for (int i = 0; i < config_.thread_number; i++) {
+    threads.push_back(std::thread([this, i]{
+           RGWS3Client s3_client(config_.rgw_address, config_.access_key, config_.secret_key);
+           for (int j = 0; j < config_.object_count; ++j) {
+	     if ((j % config_.thread_number) == i) {
+               s3_client.delete_object("radosgw-bench-bucket", std::to_string(j));
+	     }
+           }
+        }));
   }
 
+  for (auto& thread : threads) {
+    thread.join();
+  }
+
+  RGWS3Client s3_client(config_.rgw_address, config_.access_key, config_.secret_key);
   s3_client.remove_bucket("radosgw-bench-bucket");
+  
+  std::cout << "cleanup finished" << std::endl;
+  LOG(INFO) << "cleanup finished";
 
   return true;
 }

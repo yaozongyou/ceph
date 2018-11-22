@@ -13,13 +13,14 @@ class RGWBench {
     std::string rgw_address = "127.0.0.1:8000";
     std::string access_key = "0555b35654ad1656d804";
     std::string secret_key = "h7GhxuBLTrlhVUyxSPUKUV8r/2EI4ngqJxD7iBdBYLhwluN30JaT3Q==";
-    int thread_number = 1;
-    int object_size = 1024 * 1024;
-    int object_count = 1024;
+    std::string bench_type = "read";
+    int thread_number = 8;
+    int object_size = 16 * 1024 * 1024;
+    int object_count = 1;
     int bench_secs = 10;
   };
 
-  RGWBench(CephContext* cct, const Config& config);
+  RGWBench(const Config& config);
   ~RGWBench();
 
   bool prepare();
@@ -29,7 +30,6 @@ class RGWBench {
  private:
   void worker();
 
-  CephContext* cct_;
   Config config_;
 };
 

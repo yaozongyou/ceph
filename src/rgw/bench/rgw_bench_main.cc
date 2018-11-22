@@ -5,7 +5,6 @@
 #include <getopt.h>
 #include <string.h>
 #include <iostream>
-#include "global/global_init.h"
 
 static bool g_show_usage = false;
 std::string g_bench_type;
@@ -34,7 +33,8 @@ int main(int argc, const char* argv[]) {
       {"secs",        1, 0, 's' },
       {"type",        1, 0, 't' },
       {"concurrent",  1, 0, 'c' },
-      {"object-size", required_argument, 0, 0   },
+      {"bench-type",  required_argument, 0, 0 },
+      {"object-size", required_argument, 0, 0 },
       {"access-key",  1, 0, '1' },
       {"secret-key",  1, 0, '2' },
       {"help",        0, 0, 'h' },
@@ -50,6 +50,9 @@ int main(int argc, const char* argv[]) {
     case 0:
       if (strcmp(long_options[option_index].name, "object-size") == 0) {
 	bench_config.object_size = atoi(optarg);
+      }
+      if (strcmp(long_options[option_index].name, "bench-type") == 0) {
+	bench_config.bench_type = optarg;
       }
       break;
     case 's':
@@ -83,13 +86,9 @@ int main(int argc, const char* argv[]) {
     return 0;
   }
 
-  vector<const char*> args;
-  auto cct = global_init(NULL, args, CEPH_ENTITY_TYPE_CLIENT, CODE_ENVIRONMENT_UTILITY, 0);
-
   bench_config.rgw_address = argv[argc -1];
-  std::cout << "begin to bench using " << bench_config.rgw_address << std::endl;
 
-  RGWBench bench(&*cct, bench_config);
+  RGWBench bench(bench_config);
   bench.prepare();
   bench.execute();
   bench.cleanup();
