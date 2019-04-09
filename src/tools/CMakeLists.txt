@@ -100,6 +100,11 @@ add_executable(ceph-authtool ${ceph_authtool_srcs})
 target_link_libraries(ceph-authtool global ${EXTRALIBS} ${CRYPTO_LIBS})
 install(TARGETS ceph-authtool DESTINATION bin)
 
+set(rados_hello_world_srcs rados_hello_world.cc)
+add_executable(rados_hello_world ${rados_hello_world_srcs})
+target_link_libraries(rados_hello_world librados)
+install(TARGETS rados_hello_world DESTINATION bin)
+
 if(WITH_TESTS)
 set(ceph_dedup_tool_srcs ceph_dedup_tool.cc)
 add_executable(ceph-dedup-tool ${ceph_dedup_tool_srcs})
