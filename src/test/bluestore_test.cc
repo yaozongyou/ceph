@@ -14,13 +14,9 @@ int main(int argc, const char *argv[]) {
       CEPH_ENTITY_TYPE_OSD, CODE_ENVIRONMENT_UTILITY, CINIT_FLAG_NO_DEFAULT_CONFIG_FILE);
   common_init_finish(g_ceph_context);
 
-  std::string osd_objectstore = "filestore";
-  std::string osd_data = "./filestore-bench";
-  std::string osd_journal = "./filestore-bench/journal";
-
-  auto os = std::unique_ptr<ObjectStore>(ObjectStore::create(g_ceph_context, osd_objectstore, osd_data, osd_journal));
+  auto os = std::unique_ptr<ObjectStore>(ObjectStore::create(g_ceph_context, "bluestore", "./bluestore-data", ""));
   if (!os) {
-    //derr << "bad objectstore type " << g_conf->osd_objectstore << dendl;
+	derr << "bad objectstore type bluestore" << dendl;
     return 1;
   }
 
