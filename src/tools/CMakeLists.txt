@@ -100,6 +100,11 @@ add_executable(ceph-authtool ${ceph_authtool_srcs})
 target_link_libraries(ceph-authtool global ${EXTRALIBS} ${CRYPTO_LIBS})
 install(TARGETS ceph-authtool DESTINATION bin)
 
+set(snapshot_hello_world_srcs snapshot_hello_world.cc)
+add_executable(snapshot_hello_world ${snapshot_hello_world_srcs})
+target_link_libraries(snapshot_hello_world librados)
+install(TARGETS snapshot_hello_world DESTINATION bin)
+
 if(WITH_TESTS)
 set(ceph_dedup_tool_srcs ceph_dedup_tool.cc)
 add_executable(ceph-dedup-tool ${ceph_dedup_tool_srcs})
