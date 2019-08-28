@@ -40,6 +40,7 @@ int main() {
     return -1;
   }
 
+  // make a snapshot
   rados_snap_t snapid = 0;
   error_code = rados_ioctx_selfmanaged_snap_create(io, &snapid);
   if (error_code < 0) {
