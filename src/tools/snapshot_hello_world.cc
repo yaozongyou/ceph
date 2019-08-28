@@ -32,20 +32,6 @@ int main() {
     return -1;
   }
 
-  /*
-  rados_snap_t snapid1 = 0;
-  error_code = rados_ioctx_selfmanaged_snap_create(io, &snapid1);
-  if (error_code < 0) {
-    std::cerr << "failed to rados_ioctx_selfmanaged_snap_create: error_code " << error_code << std::endl;
-    rados_ioctx_destroy(io);
-    rados_shutdown(cluster);
-    return -1;
-  }
-  std::cout << "snapid1 " << snapid1 << std::endl;
-
-  rados_snap_t snaps[2] = {snapid1};
-  rados_ioctx_selfmanaged_snap_set_write_ctx(io, snapid1, snaps, 1);
-  */
   error_code = rados_write_full(io, "hello", "world", 5);
   if (error_code < 0) {
     std::cerr << "failed to rados_write_full: error_code " << error_code << std::endl;
@@ -54,8 +40,8 @@ int main() {
     return -1;
   }
 
-  rados_snap_t snapid2 = 0;
-  error_code = rados_ioctx_selfmanaged_snap_create(io, &snapid2);
+  rados_snap_t snapid = 0;
+  error_code = rados_ioctx_selfmanaged_snap_create(io, &snapid);
   if (error_code < 0) {
     std::cerr << "failed to rados_ioctx_selfmanaged_snap_create: error_code " << error_code << std::endl;
     rados_ioctx_destroy(io);
@@ -63,12 +49,11 @@ int main() {
     return -1;
   }
 
-  std::cout << "snapid2 " << snapid2 << std::endl;
+  std::cout << "snapid " << snapid << std::endl;
   
-  rados_snap_t snaps[2];
-  snaps[0] = snapid2;
-  //snaps[1] = snapid1;
-  rados_ioctx_selfmanaged_snap_set_write_ctx(io, snapid2, snaps, 1);
+  rados_snap_t snaps[1];
+  snaps[0] = snapid;
+  rados_ioctx_selfmanaged_snap_set_write_ctx(io, snapid, snaps, 1);
   error_code = rados_write_full(io, "hello", "worle", 5);
   if (error_code < 0) {
     std::cerr << "failed to rados_write_full: error_code " << error_code << std::endl;
@@ -77,6 +62,7 @@ int main() {
     return -1;
   }
 
+  // read head
   char buffer[1024] = {0};
   rados_ioctx_snap_set_read(io, LIBRADOS_SNAP_HEAD);
   int num_bytes = rados_read(io, "hello", buffer, 1024, uint64_t(0));
@@ -90,7 +76,7 @@ int main() {
   std::cout << "content " << buffer << " num_bytes " << num_bytes << std::endl;
 
   // read snapshot
-  rados_ioctx_snap_set_read(io, snapid2);
+  rados_ioctx_snap_set_read(io, snapid);
   num_bytes = rados_read(io, "hello", buffer, 1024, uint64_t(0));
   if (num_bytes < 0) {
     std::cerr << "failed to rados_read: error_code " << num_bytes << std::endl;	  
