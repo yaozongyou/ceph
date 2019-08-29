@@ -89,6 +89,15 @@ int main() {
   std::cout << "content " << buffer << " num_bytes " << num_bytes << std::endl;
 
 
+  // remove snapshot
+  error_code = rados_ioctx_selfmanaged_snap_remove(io, snapid);
+  if (error_code < 0) {
+    std::cerr << "failed to rados_ioctx_selfmanaged_snap_remove: error_code " << error_code << std::endl;
+    rados_ioctx_destroy(io);
+    rados_shutdown(cluster);
+    return -1;
+  }
+
   rados_ioctx_destroy(io);
   rados_shutdown(cluster);
 
