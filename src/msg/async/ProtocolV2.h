@@ -8,6 +8,7 @@
 
 #include "Protocol.h"
 #include "crypto_onwire.h"
+#include "frames_v2.h"
 
 class ProtocolV2 : public Protocol {
 private:
@@ -49,28 +50,6 @@ private:
   }
 
 public:
-  enum class Tag : __u8 {
-    HELLO = 1,
-    AUTH_REQUEST,
-    AUTH_BAD_METHOD,
-    AUTH_REPLY_MORE,
-    AUTH_REQUEST_MORE,
-    AUTH_DONE,
-    CLIENT_IDENT,
-    SERVER_IDENT,
-    IDENT_MISSING_FEATURES,
-    SESSION_RECONNECT,
-    SESSION_RESET,
-    SESSION_RETRY,
-    SESSION_RETRY_GLOBAL,
-    SESSION_RECONNECT_OK,
-    WAIT,
-    MESSAGE,
-    KEEPALIVE2,
-    KEEPALIVE2_ACK,
-    ACK
-  };
-
   // TODO: move into auth_meta?
   ceph::crypto::onwire::rxtx_t session_stream_handlers;
 private:
@@ -106,58 +85,18 @@ private:
   uint32_t next_payload_len;
 
 public:
-  struct segment_t {
-    // TODO: this will be dropped with support for `allocation policies`.
-    // We need them because of the rx_buffers zero-copy optimization.
-    static constexpr __le16 DEFERRED_ALLOCATION { 0x0000 };
 
-    static constexpr __le16 DEFAULT_ALIGNMENT = sizeof(void*);
-
-    __le32 length;
-    __le16 alignment;
-  } __attribute__((packed));
-
-  struct onwire_segment_t {
-    // crypto-processed segment can be expanded on-wire because of:
-    //  * padding to achieve CRYPTO_BLOCK_SIZE alignment,
-    //  * authentication tag. It's appended at the end of message.
-    //    See RxHandler::get_extra_size_at_final().
-    __le32 onwire_length;
-
-    struct segment_t logical;
-  } __attribute__((packed));
-
-  static constexpr std::size_t MAX_NUM_SEGMENTS = 4;
-
-  struct SegmentIndex {
-    struct Msg {
-      static constexpr std::size_t HEADER = 0;
-      static constexpr std::size_t FRONT = 1;
-      static constexpr std::size_t MIDDLE = 2;
-      static constexpr std::size_t DATA = 3;
-    };
-
-    struct Frame {
-      static constexpr std::size_t PAYLOAD = 0;
-    };
-  };
-
-  boost::container::static_vector<onwire_segment_t,
-				  MAX_NUM_SEGMENTS> rx_segments_desc;
+  boost::container::static_vector<ceph::msgr::v2::segment_t,
+				  ceph::msgr::v2::MAX_NUM_SEGMENTS> rx_segments_desc;
   boost::container::static_vector<ceph::bufferlist,
-				  MAX_NUM_SEGMENTS> rx_segments_data;
-
+				  ceph::msgr::v2::MAX_NUM_SEGMENTS> rx_segments_data;
 private:
 
-  Tag next_tag;
-  ceph_msg_header2 current_header;
+  ceph::msgr::v2::Tag sent_tag;
+  ceph::msgr::v2::Tag next_tag;
   utime_t backoff;  // backoff time
   utime_t recv_stamp;
   utime_t throttle_stamp;
-  unsigned msg_left;
-  bufferlist data_buf;
-  bufferlist::iterator data_blp;
-  bufferlist front, middle, data, extra;
 
   bool keepalive;
 
@@ -166,13 +105,20 @@ private:
 
   Ct<ProtocolV2> *read(CONTINUATION_PARAM(next, ProtocolV2, char *, int),
                        int len, char *buffer = nullptr);
+  template <class F>
+  Ct<ProtocolV2> *write(const std::string &desc,
+                        CONTINUATION_PARAM(next, ProtocolV2), F &frame);
   Ct<ProtocolV2> *write(const std::string &desc,
                         CONTINUATION_PARAM(next, ProtocolV2),
                         bufferlist &buffer);
 
+  uint64_t expected_tags(ceph::msgr::v2::Tag sent_tag,
+                         ceph::msgr::v2::Tag received_tag);
+
   void requeue_sent();
   uint64_t discard_requeued_up_to(uint64_t out_seq, uint64_t seq);
   void reset_recv_state();
+  void reset_throttle();
   Ct<ProtocolV2> *_fault();
   void discard_out_queue();
   void reset_session();
@@ -196,18 +142,17 @@ private:
   CONTINUATION_DECL(ProtocolV2, read_frame);
   READ_HANDLER_CONTINUATION_DECL(ProtocolV2, handle_read_frame_preamble_main);
   READ_HANDLER_CONTINUATION_DECL(ProtocolV2, handle_read_frame_segment);
+  READ_HANDLER_CONTINUATION_DECL(ProtocolV2, handle_read_frame_epilogue_main);
   CONTINUATION_DECL(ProtocolV2, throttle_message);
   CONTINUATION_DECL(ProtocolV2, throttle_bytes);
   CONTINUATION_DECL(ProtocolV2, throttle_dispatch_queue);
-  CONTINUATION_DECL(ProtocolV2, read_message_data);
-  READ_HANDLER_CONTINUATION_DECL(ProtocolV2, handle_message_data);
-  READ_HANDLER_CONTINUATION_DECL(ProtocolV2, handle_message_extra_bytes);
 
   Ct<ProtocolV2> *read_frame();
   Ct<ProtocolV2> *handle_read_frame_preamble_main(char *buffer, int r);
-  Ct<ProtocolV2> *handle_read_frame_dispatch();
   Ct<ProtocolV2> *read_frame_segment();
   Ct<ProtocolV2> *handle_read_frame_segment(char *buffer, int r);
+  Ct<ProtocolV2> *handle_read_frame_epilogue_main(char *buffer, int r);
+  Ct<ProtocolV2> *handle_read_frame_dispatch();
   Ct<ProtocolV2> *handle_frame_payload();
 
   Ct<ProtocolV2> *ready();
@@ -217,10 +162,6 @@ private:
   Ct<ProtocolV2> *throttle_bytes();
   Ct<ProtocolV2> *throttle_dispatch_queue();
   Ct<ProtocolV2> *read_message_data_prepare();
-  Ct<ProtocolV2> *read_message_data();
-  Ct<ProtocolV2> *handle_message_data(char *buffer, int r);
-  Ct<ProtocolV2> *handle_message_extra_bytes(char *buffer, int r);
-  Ct<ProtocolV2> *handle_message_complete();
 
   Ct<ProtocolV2> *handle_keepalive2(ceph::bufferlist &payload);
   Ct<ProtocolV2> *handle_keepalive2_ack(ceph::bufferlist &payload);
@@ -266,7 +207,7 @@ private:
   Ct<ProtocolV2> *handle_session_reset(ceph::bufferlist &payload);
   Ct<ProtocolV2> *handle_session_retry(ceph::bufferlist &payload);
   Ct<ProtocolV2> *handle_session_retry_global(ceph::bufferlist &payload);
-  Ct<ProtocolV2> *handle_wait();
+  Ct<ProtocolV2> *handle_wait(ceph::bufferlist &payload);
   Ct<ProtocolV2> *handle_reconnect_ok(ceph::bufferlist &payload);
   Ct<ProtocolV2> *handle_server_ident(ceph::bufferlist &payload);
 
@@ -292,6 +233,7 @@ private:
   Ct<ProtocolV2> *server_ready();
 
   uint32_t get_onwire_size(uint32_t logical_size) const;
+  uint32_t get_epilogue_size() const;
 };
 
 #endif /* _MSG_ASYNC_PROTOCOL_V2_ */

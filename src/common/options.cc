@@ -841,7 +841,7 @@ std::vector<Option> get_global_options() {
     .add_see_also("ms_type"),
 
     Option("ms_mon_cluster_mode", Option::TYPE_STR, Option::LEVEL_BASIC)
-    .set_default("crc secure")
+    .set_default("crc")
     .set_description("Connection modes (crc, secure) for intra-mon connections in order of preference")
     .add_see_also("ms_mon_service_mode")
     .add_see_also("ms_mon_client_mode")
@@ -850,7 +850,7 @@ std::vector<Option> get_global_options() {
     .add_see_also("ms_client_mode"),
 
     Option("ms_mon_service_mode", Option::TYPE_STR, Option::LEVEL_BASIC)
-    .set_default("crc secure")
+    .set_default("crc")
     .set_description("Allowed connection modes (crc, secure) for connections to mons")
     .add_see_also("ms_service_mode")
     .add_see_also("ms_mon_cluster_mode")
@@ -859,7 +859,7 @@ std::vector<Option> get_global_options() {
     .add_see_also("ms_client_mode"),
 
     Option("ms_mon_client_mode", Option::TYPE_STR, Option::LEVEL_BASIC)
-    .set_default("crc secure")
+    .set_default("crc")
     .set_description("Connection modes (crc, secure) for connections from clients to monitors in order of preference")
     .add_see_also("ms_mon_service_mode")
     .add_see_also("ms_mon_cluster_mode")
@@ -868,19 +868,19 @@ std::vector<Option> get_global_options() {
     .add_see_also("ms_client_mode"),
 
     Option("ms_cluster_mode", Option::TYPE_STR, Option::LEVEL_BASIC)
-    .set_default("crc secure")
+    .set_default("crc")
     .set_description("Connection modes (crc, secure) for intra-cluster connections in order of preference")
     .add_see_also("ms_service_mode")
     .add_see_also("ms_client_mode"),
 
     Option("ms_service_mode", Option::TYPE_STR, Option::LEVEL_BASIC)
-    .set_default("crc secure")
+    .set_default("crc")
     .set_description("Allowed connection modes (crc, secure) for connections to daemons")
     .add_see_also("ms_cluster_mode")
     .add_see_also("ms_client_mode"),
 
     Option("ms_client_mode", Option::TYPE_STR, Option::LEVEL_BASIC)
-    .set_default("crc secure")
+    .set_default("crc")
     .set_description("Connection modes (crc, secure) for connections from clients in order of preference")
     .add_see_also("ms_cluster_mode")
     .add_see_also("ms_service_mode"),
@@ -1593,11 +1593,6 @@ std::vector<Option> get_global_options() {
     .add_service("mon")
     .set_description("time before OSDs who do not report to the mons are marked down (seconds)"),
 
-    Option("mon_force_standby_active", Option::TYPE_BOOL, Option::LEVEL_ADVANCED)
-    .set_default(true)
-    .add_service("mon")
-    .set_description("allow use of MDS daemons in standby-replay as replacements"),
-
     Option("mon_warn_on_msgr2_not_enabled", Option::TYPE_BOOL, Option::LEVEL_ADVANCED)
     .set_default(true)
     .add_service("mon")
@@ -1760,7 +1755,7 @@ std::vector<Option> get_global_options() {
     Option("mon_data_avail_warn", Option::TYPE_INT, Option::LEVEL_ADVANCED)
     .set_default(30)
     .add_service("mon")
-    .set_description("isue MON_DISK_LOW health warning when mon available space below this percentage"),
+    .set_description("issue MON_DISK_LOW health warning when mon available space below this percentage"),
 
     Option("mon_data_size_warn", Option::TYPE_SIZE, Option::LEVEL_ADVANCED)
     .set_default(15_G)
@@ -2282,11 +2277,12 @@ std::vector<Option> get_global_options() {
 
     Option("osd_max_backfills", Option::TYPE_UINT, Option::LEVEL_ADVANCED)
     .set_default(1)
-    .set_description("maximum number of concurrent backfills per OSD"),
+    .set_description("Maximum number of concurrent local and remote backfills or recoveries per OSD ")
+    .set_long_description("There can be osd_max_backfills local reservations AND the same remote reservations per OSD. So a value of 1 lets this OSD participate as 1 PG primary in recovery and 1 shard of another recovering PG."),
 
     Option("osd_min_recovery_priority", Option::TYPE_INT, Option::LEVEL_ADVANCED)
     .set_default(0)
-    .set_description("minimum priority below which recovery is not performed")
+    .set_description("Minimum priority below which recovery is not performed")
     .set_long_description("The purpose here is to prevent the cluster from doing *any* lower priority work (e.g., rebalancing) below this threshold and focus solely on higher priority work (e.g., replicating degraded objects)."),
 
     Option("osd_backfill_retry_interval", Option::TYPE_FLOAT, Option::LEVEL_ADVANCED)
@@ -3887,7 +3883,7 @@ std::vector<Option> get_global_options() {
 
     Option("osd_recovery_op_priority", Option::TYPE_UINT, Option::LEVEL_ADVANCED)
     .set_default(3)
-    .set_description(""),
+    .set_description("Priority to use for recovery operations if not specified for the pool"),
 
     Option("osd_peering_op_priority", Option::TYPE_UINT, Option::LEVEL_DEV)
     .set_default(255)
@@ -3923,7 +3919,8 @@ std::vector<Option> get_global_options() {
 
     Option("osd_recovery_priority", Option::TYPE_UINT, Option::LEVEL_ADVANCED)
     .set_default(5)
-    .set_description(""),
+    .set_description("Priority of recovery in the work queue")
+    .set_long_description("Not related to a pool's recovery_priority"),
 
     Option("osd_recovery_cost", Option::TYPE_SIZE, Option::LEVEL_ADVANCED)
     .set_default(20<<20)
@@ -7071,8 +7068,24 @@ static std::vector<Option> get_rbd_options() {
     .set_description("number of seconds before maintenance request times out"),
 
     Option("rbd_skip_partial_discard", Option::TYPE_BOOL, Option::LEVEL_ADVANCED)
-    .set_default(false)
-    .set_description("when trying to discard a range inside an object, set to true to skip zeroing the range"),
+    .set_default(true)
+    .set_description("skip discard (zero) of unaligned extents within an object"),
+
+    Option("rbd_discard_granularity_bytes", Option::TYPE_UINT,
+           Option::LEVEL_ADVANCED)
+    .set_default(64_K)
+    .set_min_max(4_K, 32_M)
+    .set_validator([](std::string *value, std::string *error_message){
+        uint64_t f = strict_si_cast<uint64_t>(value->c_str(), error_message);
+        if (!error_message->empty()) {
+          return -EINVAL;
+        } else if (!isp2(f)) {
+          *error_message = "value must be a power of two";
+          return -EINVAL;
+        }
+        return 0;
+      })
+    .set_description("minimum aligned size of discard operations"),
 
     Option("rbd_enable_alloc_hint", Option::TYPE_BOOL, Option::LEVEL_ADVANCED)
     .set_default(true)
@@ -7318,7 +7331,7 @@ static std::vector<Option> get_rbd_mirror_options() {
     .set_description("number of failed attempts to acquire lock after missing heartbeats before breaking lock"),
 
     Option("rbd_mirror_image_policy_type", Option::TYPE_STR, Option::LEVEL_ADVANCED)
-    .set_default("none")
+    .set_default("simple")
     .set_enum_allowed({"none", "simple"})
     .set_description("active/active policy type for mapping images to instances"),
 
@@ -7724,22 +7737,6 @@ std::vector<Option> get_mds_options() {
     Option("mds_skip_ino", Option::TYPE_INT, Option::LEVEL_DEV)
     .set_default(0)
     .set_description(""),
-
-    Option("mds_standby_for_name", Option::TYPE_STR, Option::LEVEL_ADVANCED)
-    .set_default("")
-    .set_description("standby for named MDS daemon when not active"),
-
-    Option("mds_standby_for_rank", Option::TYPE_INT, Option::LEVEL_BASIC)
-    .set_default(-1)
-    .set_description("allow MDS to become a standby:replay daemon"),
-
-    Option("mds_standby_for_fscid", Option::TYPE_INT, Option::LEVEL_ADVANCED)
-    .set_default(-1)
-    .set_description("standby only for the file system with the given fscid"),
-
-    Option("mds_standby_replay", Option::TYPE_BOOL, Option::LEVEL_BASIC)
-    .set_default(false)
-    .set_description("allow MDS to standby replay for an active MDS"),
 
     Option("mds_enable_op_tracker", Option::TYPE_BOOL, Option::LEVEL_ADVANCED)
     .set_default(true)

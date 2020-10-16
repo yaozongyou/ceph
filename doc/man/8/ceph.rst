@@ -13,7 +13,7 @@ Synopsis
 
 | **ceph** **compact**
 
-| **ceph** **config-key** [ *del* | *exists* | *get* | *list* | *dump* | *put* ] ...
+| **ceph** **config-key** [ *rm* | *exists* | *get* | *ls* | *dump* | *set* ] ...
 
 | **ceph** **daemon** *<name>* \| *<path>* *<command>* ...
 
@@ -179,11 +179,11 @@ config-key
 
 Manage configuration key. It uses some additional subcommands.
 
-Subcommand ``del`` deletes configuration key.
+Subcommand ``rm`` deletes configuration key.
 
 Usage::
 
-	ceph config-key del <key>
+	ceph config-key rm <key>
 
 Subcommand ``exists`` checks for configuration keys existence.
 
@@ -197,7 +197,7 @@ Usage::
 
 	ceph config-key get <key>
 
-Subcommand ``list`` lists configuration keys.
+Subcommand ``ls`` lists configuration keys.
 
 Usage::
 
@@ -1450,6 +1450,16 @@ Options
    will write any payload returned by the monitor cluster with its
    reply to outfile.  Only specific monitor commands (e.g. osd getmap)
    return a payload.
+
+.. option:: --setuser user
+
+   will apply the appropriate user ownership to the file specified by
+   the option '-o'.
+
+.. option:: --setgroup group
+
+   will apply the appropriate group ownership to the file specified by
+   the option '-o'.
 
 .. option:: -c ceph.conf, --conf=ceph.conf
 

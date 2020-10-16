@@ -798,6 +798,9 @@ CtPtr ProtocolV1::read_message_data_prepare() {
 
   if (data_len) {
     // get a buffer
+#if 0
+    // rx_buffers is broken by design... see
+    //  http://tracker.ceph.com/issues/22480
     map<ceph_tid_t, pair<bufferlist, int> >::iterator p =
         connection->rx_buffers.find(current_header.tid);
     if (p != connection->rx_buffers.end()) {
@@ -815,6 +818,12 @@ CtPtr ProtocolV1::read_message_data_prepare() {
       alloc_aligned_buffer(data_buf, data_len, data_off);
       data_blp = data_buf.begin();
     }
+#else
+    ldout(cct, 20) << __func__ << " allocating new rx buffer at offset "
+		   << data_off << dendl;
+    alloc_aligned_buffer(data_buf, data_len, data_off);
+    data_blp = data_buf.begin();
+#endif
   }
 
   msg_left = data_len;
@@ -1998,6 +2007,8 @@ CtPtr ProtocolV1::handle_connect_message_2() {
                     << " existing_state="
                     << connection->get_state_name(existing->state) << dendl;
       reply.global_seq = exproto->peer_global_seq;
+      // make sure we notice if existing connection is no longer functioning
+      existing->send_keepalive();
       existing->lock.unlock();
       return send_connect_message_reply(CEPH_MSGR_TAG_RETRY_GLOBAL, reply,
                                         authorizer_reply);

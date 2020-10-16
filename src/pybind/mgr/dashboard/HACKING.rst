@@ -1,5 +1,5 @@
-Dashboard Developer Documentation
-====================================
+Ceph Dashboard Developer Documentation
+======================================
 
 .. contents:: Table of Contents
 
@@ -1030,7 +1030,7 @@ The value of the class attribute is a pair composed by the default value for tha
 setting, and the python type of the value.
 
 By declaring the ``ADMIN_EMAIL_ADDRESS`` class attribute, when you restart the
-dashboard plugin, you will automatically gain two additional CLI commands to
+dashboard module, you will automatically gain two additional CLI commands to
 get and set that setting::
 
   $ ceph dashboard get-admin-email-address
@@ -1419,6 +1419,89 @@ Usage example:
     // ...
   }
 
+
+REST API documentation
+~~~~~~~~~~~~~~~~~~~~~~
+There is an automatically generated Swagger UI page for documentation of the REST
+API endpoints.However, by default it is not very detailed. There are two
+decorators that can be used to add more information:
+
+* ``@EndpointDoc()`` for documentation of endpoints. It has four optional arguments
+  (explained below): ``description``, ``group``, ``parameters`` and``responses``.
+* ``@ControllerDoc()`` for documentation of controller or group associated with 
+  the endpoints. It only takes the two first arguments: ``description`` and``group``.
+
+
+``description``: A a string with a short (1-2 sentences) description of the object.
+
+
+``group``: By default, an endpoint is grouped together with other endpoints
+within the same controller class. ``group`` is a string that can be used to
+assign an endpoint or all endpoints in a class to another controller or a 
+conceived group name.
+
+
+``parameters``: A dict used to describe path, query or request body parameters.
+By default, all parameters for an endpoint are listed on the Swagger UI page,
+including information of whether the parameter is optional/required and default
+values. However, there will be no description of the parameter and the parameter
+type will only be displayed in some cases.
+When adding information, each parameters should be described as in the example
+below. Note that the parameter type should be expressed as a built-in python
+type and not as a string. Allowed values are ``str``, ``int``, ``bool``, ``float``.
+
+.. code-block:: python
+
+ @EndpointDoc(parameters={'my_string': (str, 'Description of my_string')})
+
+For body parameters, more complex cases are possible. If the parameter is a
+dictionary, the type should be replaced with a ``dict`` containing its nested
+parameters. When describing nested parameters, the same format as other
+parameters is used. However, all nested parameters are set as required by default.
+If the nested parameter is optional this must be specified as for ``item2`` in
+the example below. If a nested parameters is set to optional, it is also
+possible to specify the default value (this will not be provided automatically
+for nested parameters).
+
+.. code-block:: python
+
+  @EndpointDoc(parameters={
+    'my_dictionary': ({
+      'item1': (str, 'Description of item1'),
+      'item2': (str, 'Description of item2', True),  # item2 is optional
+      'item3': (str, 'Description of item3', True, 'foo'),  # item3 is optional with 'foo' as default value
+  }, 'Description of my_dictionary')})
+ 
+If the parameter is a ``list`` of primitive types, the type should be
+surrounded with square brackets.
+
+.. code-block:: python
+
+  @EndpointDoc(parameters={'my_list': ([int], 'Description of my_list')})
+
+If the parameter is a ``list`` with nested parameters, the nested parameters
+should be placed in a dictionary and surrounded with square brackets.
+
+.. code-block:: python
+
+  @EndpointDoc(parameters={
+    'my_list': ([{
+      'list_item': (str, 'Description of list_item'),
+      'list_item2': (str, 'Description of list_item2')
+  }], 'Description of my_list')})
+
+
+``responses``: A dict used for describing responses. Rules for describing
+responses are the same as for request body parameters, with one difference:
+responses also needs to be assigned to the related response code as in the
+example below:
+
+.. code-block:: python
+
+  @EndpointDoc(responses={
+    '400':{'my_response': (str, 'Description of my_response')}
+
+
 Error Handling in Python
 ~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -1502,12 +1585,12 @@ Plug-ins
 
 New functionality can be provided by means of a plug-in architecture. Among the
 benefits this approach brings in, loosely coupled development is one of the most
-notable. As the Ceph-Dashboard grows in feature richness, its code-base becomes
+notable. As the Ceph Dashboard grows in feature richness, its code-base becomes
 more and more complex. The hook-based nature of a plug-in architecture allows to
 extend functionality in a controlled manner, and isolate the scope of the
 changes.
 
-Ceph-Dashboard relies on `Pluggy <https://pluggy.readthedocs.io>`_ to provide
+Ceph Dashboard relies on `Pluggy <https://pluggy.readthedocs.io>`_ to provide
 for plug-ing support. On top of pluggy, an interface-based approach has been
 implemented, with some safety checks (method override and abstract method
 checks).
@@ -1518,13 +1601,13 @@ In order to create a new plugin, the following steps are required:
 #. Import the ``PLUGIN_MANAGER`` instance and the ``Interfaces``.
 #. Create a class extending the desired interfaces. The plug-in library will check if all the methods of the interfaces have been properly overridden.
 #. Register the plugin in the ``PLUGIN_MANAGER`` instance.
-#. Import the plug-in from within the Ceph-Dashboard ``module.py`` (currently no dynamic loading is implemented).
+#. Import the plug-in from within the Ceph Dashboard ``module.py`` (currently no dynamic loading is implemented).
 
 The available interfaces are the following:
 
 - ``CanMgr``: provides the plug-in with access to the ``mgr`` instance under ``self.mgr``.
-- ``CanLog``: provides the plug-in with access to the Ceph-Dashboard logger under ``self.log``.
-- ``Setupable``: requires overriding ``setup()`` hook. This method is run in the Ceph-Dashboard ``serve()`` method, right after CherryPy has been configured, but before it is started. It's a placeholder for the plug-in initialization logic.
+- ``CanLog``: provides the plug-in with access to the Ceph Dashboard logger under ``self.log``.
+- ``Setupable``: requires overriding ``setup()`` hook. This method is run in the Ceph Dashboard ``serve()`` method, right after CherryPy has been configured, but before it is started. It's a placeholder for the plug-in initialization logic.
 - ``HasOptions``: requires overriding ``get_options()`` hook by returning a list of ``Options()``. The options returned here are added to the ``MODULE_OPTIONS``.
 - ``HasCommands``: requires overriding ``register_commands()`` hook by defining the commands the plug-in can handle and decorating them with ``@CLICommand`. The commands can be optionally returned, so that they can be invoked externally (which makes unit testing easier).
 - ``HasControllers``: requires overriding ``get_controllers()`` hook by defining and returning the controllers as usual.

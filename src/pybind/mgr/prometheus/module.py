@@ -1,4 +1,5 @@
 import cherrypy
+from distutils.version import StrictVersion
 import json
 import errno
 import math
@@ -17,6 +18,19 @@ from rbd import RBD
 DEFAULT_ADDR = '::'
 DEFAULT_PORT = 9283
 
+# When the CherryPy server in 3.2.2 (and later) starts it attempts to verify
+# that the ports its listening on are in fact bound. When using the any address
+# "::" it tries both ipv4 and ipv6, and in some environments (e.g. kubernetes)
+# ipv6 isn't yet configured / supported and CherryPy throws an uncaught
+# exception.
+if cherrypy is not None:
+    v = StrictVersion(cherrypy.__version__)
+    # the issue was fixed in 3.2.3. it's present in 3.2.2 (current version on
+    # centos:7) and back to at least 3.0.0.
+    if StrictVersion("3.1.2") <= v < StrictVersion("3.2.3"):
+        # https://github.com/cherrypy/cherrypy/issues/1100
+        from cherrypy.process import servers
+        servers.wait_for_occupied_port = lambda host, port: None
 
 # cherrypy likes to sys.exit on error.  don't let it take us down too!
 def os_exit_noop(*args, **kwargs):
@@ -498,15 +512,14 @@ class Module(MgrModule):
                     'osd.{}'.format(id_),
                 ))
 
-            osd_objectstore = osd_metadata.get('osd_objectstore', None)
-            if osd_objectstore == "filestore":
+            if obj_store == "filestore":
                 # collect filestore backend device
                 osd_dev_node = osd_metadata.get(
                     'backend_filestore_dev_node', None)
                 # collect filestore journal device
                 osd_wal_dev_node = osd_metadata.get('osd_journal', '')
                 osd_db_dev_node = ''
-            elif osd_objectstore == "bluestore":
+            elif obj_store == "bluestore":
                 # collect bluestore backend device
                 osd_dev_node = osd_metadata.get(
                     'bluestore_bdev_dev_node', None)

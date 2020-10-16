@@ -2699,6 +2699,10 @@ will start to track new ops received afterwards.";
       f->dump_string("device", "/dev/" + dev);
     }
     f->close_section();
+  } else if (admin_command == "send_beacon") {
+    if (is_active()) {
+      send_beacon(ceph::coarse_mono_clock::now());
+    }
   } else {
     ceph_abort_msg("broken asok registration");
   }
@@ -3360,6 +3364,9 @@ void OSD::final_init()
   r = admin_socket->register_command("list_devices", "list_devices",
                                      asok_hook,
                                      "list OSD devices.");
+  r = admin_socket->register_command("send_beacon", "send_beacon",
+                                     asok_hook,
+                                     "send OSD beacon to mon immediately");
 
   test_ops_hook = new TestOpsSocketHook(&(this->service), this->store);
   // Note: pools are CephString instead of CephPoolname because
@@ -6433,6 +6440,9 @@ COMMAND("cache drop",
 COMMAND("cache status",
         "Get OSD caches statistics",
         "osd", "r")
+COMMAND("send_beacon",
+        "Send OSD beacon to mon immediately",
+        "osd", "r")
 };
 
 void OSD::do_command(
@@ -6958,8 +6968,11 @@ int OSD::_do_command(
       store->dump_cache_stats(ds);
     }
   }
-
-  else {
+  else if (prefix == "send_beacon") {
+    if (is_active()) {
+      send_beacon(ceph::coarse_mono_clock::now());
+    }
+  } else {
     ss << "unrecognized command '" << prefix << "'";
     r = -EINVAL;
   }
@@ -10694,6 +10707,10 @@ void OSD::ShardedOpWQ::_process(uint32_t thread_index, heartbeat_handle_d *hb)
   if (sdata->pqueue->empty()) {
     if (osd->is_stopping()) {
       sdata->shard_lock.unlock();
+      for (auto c : oncommits) {
+	dout(10) << __func__ << " discarding in-flight oncommit " << c << dendl;
+	delete c;
+      }
       return;    // OSD shutdown, discard.
     }
     sdata->shard_lock.unlock();
@@ -10704,6 +10721,10 @@ void OSD::ShardedOpWQ::_process(uint32_t thread_index, heartbeat_handle_d *hb)
   OpQueueItem item = sdata->pqueue->dequeue();
   if (osd->is_stopping()) {
     sdata->shard_lock.unlock();
+    for (auto c : oncommits) {
+      dout(10) << __func__ << " discarding in-flight oncommit " << c << dendl;
+      delete c;
+    }
     return;    // OSD shutdown, discard.
   }
 

@@ -153,7 +153,8 @@ void PGStateHistory::dump(Formatter* f) const {
 void PG::get(const char* tag)
 {
   int after = ++ref;
-  lgeneric_subdout(cct, refs, 1) << "PG::get " << this << " "
+  lgeneric_subdout(cct, refs, 5) << "PG::get " << this << " "
+				 << "tag " << (tag ? tag : "(none") << " "
 				 << (after - 1) << " -> " << after << dendl;
 #ifdef PG_DEBUG_REFS
   std::lock_guard l(_ref_id_lock);
@@ -175,7 +176,8 @@ void PG::put(const char* tag)
   }
 #endif
   int after = --ref;
-  lgeneric_subdout(cct, refs, 1) << "PG::put " << this << " "
+  lgeneric_subdout(cct, refs, 5) << "PG::put " << this << " "
+				 << "tag " << (tag ? tag : "(none") << " "
 				 << (after + 1) << " -> " << after << dendl;
   if (after == 0)
     delete this;
@@ -190,7 +192,10 @@ uint64_t PG::get_with_id()
   BackTrace bt(0);
   stringstream ss;
   bt.print(ss);
-  dout(20) << __func__ << ": " << info.pgid << " got id " << id << " (new) ref==" << ref << dendl;
+  lgeneric_subdout(cct, refs, 5) << "PG::get " << this << " " << info.pgid
+				 << " got id " << id << " "
+				 << (ref - 1) << " -> " << ref
+				 << dendl;
   ceph_assert(!_live_ids.count(id));
   _live_ids.insert(make_pair(id, ss.str()));
   return id;
@@ -198,13 +203,17 @@ uint64_t PG::get_with_id()
 
 void PG::put_with_id(uint64_t id)
 {
-  dout(20) << __func__ << ": " << info.pgid << " put id " << id << " (current) ref==" << ref << dendl;
+  int newref = --ref;
+  lgeneric_subdout(cct, refs, 5) << "PG::put " << this << " " << info.pgid
+				 << " put id " << id << " "
+				 << (newref + 1) << " -> " << newref
+				 << dendl;
   {
     std::lock_guard l(_ref_id_lock);
     ceph_assert(_live_ids.count(id));
     _live_ids.erase(id);
   }
-  if (--ref == 0)
+  if (newref)
     delete this;
 }
 
@@ -5519,8 +5528,9 @@ void PG::scrub_compare_maps()
   }
 
   stringstream ss;
-  get_pgbackend()->be_large_omap_check(maps, master_set,
-                                       scrubber.large_omap_objects, ss);
+  get_pgbackend()->be_omap_checks(maps, master_set,
+                                  scrubber.omap_stats, ss);
+
   if (!ss.str().empty()) {
     osd->clog->warn(ss);
   }
@@ -5719,7 +5729,13 @@ void PG::scrub_finish()
       info.history.last_clean_scrub_stamp = now;
     info.stats.stats.sum.num_shallow_scrub_errors = scrubber.shallow_errors;
     info.stats.stats.sum.num_deep_scrub_errors = scrubber.deep_errors;
-    info.stats.stats.sum.num_large_omap_objects = scrubber.large_omap_objects;
+    info.stats.stats.sum.num_large_omap_objects = scrubber.omap_stats.large_omap_objects;
+    info.stats.stats.sum.num_omap_bytes = scrubber.omap_stats.omap_bytes;
+    info.stats.stats.sum.num_omap_keys = scrubber.omap_stats.omap_keys;
+    dout(25) << __func__ << " shard " << pg_whoami << " num_omap_bytes = "
+             << info.stats.stats.sum.num_omap_bytes << " num_omap_keys = "
+             << info.stats.stats.sum.num_omap_keys << dendl;
+    publish_stats_to_osd();
   } else {
     info.stats.stats.sum.num_shallow_scrub_errors = scrubber.shallow_errors;
     // XXX: last_clean_scrub_stamp doesn't mean the pg is not inconsistent

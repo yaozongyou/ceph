@@ -139,6 +139,9 @@ ceph_send_command(BaseMgrModule *self, PyObject *args)
 
   MonCommandCompletion *command_c = new MonCommandCompletion(self->py_modules,
       completion, tag, PyThreadState_Get());
+
+  PyThreadState *tstate = PyEval_SaveThread();
+
   if (std::string(type) == "mon") {
 
     // Wait for the latest OSDMap after each command we send to
@@ -170,6 +173,7 @@ ceph_send_command(BaseMgrModule *self, PyObject *args)
       delete command_c;
       string msg("invalid osd_id: ");
       msg.append("\"").append(name).append("\"");
+      PyEval_RestoreThread(tstate);
       PyErr_SetString(PyExc_ValueError, msg.c_str());
       return nullptr;
     }
@@ -194,6 +198,7 @@ ceph_send_command(BaseMgrModule *self, PyObject *args)
     if (r != 0) {
       string msg("failed to send command to mds: ");
       msg.append(cpp_strerror(r));
+      PyEval_RestoreThread(tstate);
       PyErr_SetString(PyExc_RuntimeError, msg.c_str());
       return nullptr;
     }
@@ -203,6 +208,7 @@ ceph_send_command(BaseMgrModule *self, PyObject *args)
       delete command_c;
       string msg("invalid pgid: ");
       msg.append("\"").append(name).append("\"");
+      PyEval_RestoreThread(tstate);
       PyErr_SetString(PyExc_ValueError, msg.c_str());
       return nullptr;
     }
@@ -216,15 +222,18 @@ ceph_send_command(BaseMgrModule *self, PyObject *args)
         &command_c->outbl,
         &command_c->outs,
         command_c);
+    PyEval_RestoreThread(tstate);
     return nullptr;
   } else {
     delete command_c;
     string msg("unknown service type: ");
     msg.append(type);
+    PyEval_RestoreThread(tstate);
     PyErr_SetString(PyExc_ValueError, msg.c_str());
     return nullptr;
   }
 
+  PyEval_RestoreThread(tstate);
   Py_RETURN_NONE;
 }
 
@@ -387,30 +396,15 @@ ceph_option_get(BaseMgrModule *self, PyObject *args)
 }
 
 static PyObject*
-ceph_get_module_option_ex(BaseMgrModule *self, PyObject *args)
-{
-  char *module = nullptr;
-  char *what = nullptr;
-  if (!PyArg_ParseTuple(args, "ss:ceph_get_module_option_ex", &module, &what)) {
-    derr << "Invalid args!" << dendl;
-    return nullptr;
-  }
-  auto pResult = self->py_modules->get_typed_config(module, what);
-  return pResult;
-}
-
-static PyObject*
 ceph_get_module_option(BaseMgrModule *self, PyObject *args)
 {
+  char *module = nullptr;
   char *key = nullptr;
-  if (!PyArg_ParseTuple(args, "s:ceph_get_module_option", &key)) {
+  if (!PyArg_ParseTuple(args, "ss:ceph_get_module_option", &module, &key)) {
     derr << "Invalid args!" << dendl;
     return nullptr;
   }
-  auto pArgs = Py_BuildValue("(ss)", self->this_module->get_name().c_str(),
-    key);
-  auto pResult = ceph_get_module_option_ex(self, pArgs);
-  Py_DECREF(pArgs);
+  auto pResult = self->py_modules->get_typed_config(module, key);
   return pResult;
 }
 
@@ -428,12 +422,12 @@ ceph_store_get_prefix(BaseMgrModule *self, PyObject *args)
 }
 
 static PyObject*
-ceph_set_module_option_ex(BaseMgrModule *self, PyObject *args)
+ceph_set_module_option(BaseMgrModule *self, PyObject *args)
 {
   char *module = nullptr;
   char *key = nullptr;
   char *value = nullptr;
-  if (!PyArg_ParseTuple(args, "ssz:ceph_set_module_option_ex",
+  if (!PyArg_ParseTuple(args, "ssz:ceph_set_module_option",
         &module, &key, &value)) {
     derr << "Invalid args!" << dendl;
     return nullptr;
@@ -445,22 +439,6 @@ ceph_set_module_option_ex(BaseMgrModule *self, PyObject *args)
   self->py_modules->set_config(module, key, val);
 
   Py_RETURN_NONE;
-}
-
-static PyObject*
-ceph_set_module_option(BaseMgrModule *self, PyObject *args)
-{
-  char *key = nullptr;
-  char *value = nullptr;
-  if (!PyArg_ParseTuple(args, "sz:ceph_set_module_option", &key, &value)) {
-    derr << "Invalid args!" << dendl;
-    return nullptr;
-  }
-  auto pArgs = Py_BuildValue("(ssz)", self->this_module->get_name().c_str(),
-    key, value);
-  auto pResult = ceph_set_module_option_ex(self, pArgs);
-  Py_DECREF(pArgs);
-  return pResult;
 }
 
 static PyObject*
@@ -483,8 +461,6 @@ ceph_store_get(BaseMgrModule *self, PyObject *args)
     Py_RETURN_NONE;
   }
 }
-
-
 
 static PyObject*
 ceph_store_set(BaseMgrModule *self, PyObject *args)
@@ -1042,17 +1018,11 @@ PyMethodDef BaseMgrModule_methods[] = {
   {"_ceph_get_module_option", (PyCFunction)ceph_get_module_option, METH_VARARGS,
    "Get a module configuration option value"},
 
-  {"_ceph_get_module_option_ex", (PyCFunction)ceph_get_module_option_ex, METH_VARARGS,
-   "Get a module configuration option value from the specified module"},
-
   {"_ceph_get_store_prefix", (PyCFunction)ceph_store_get_prefix, METH_VARARGS,
    "Get all KV store values with a given prefix"},
 
   {"_ceph_set_module_option", (PyCFunction)ceph_set_module_option, METH_VARARGS,
    "Set a module configuration option value"},
-
-  {"_ceph_set_module_option_ex", (PyCFunction)ceph_set_module_option_ex, METH_VARARGS,
-   "Set a module configuration option value for the specified module"},
 
   {"_ceph_get_store", (PyCFunction)ceph_store_get, METH_VARARGS,
    "Get a stored field"},
