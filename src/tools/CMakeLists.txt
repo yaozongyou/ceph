@@ -89,6 +89,11 @@ add_executable(crushtool ${crushtool_srcs})
 target_link_libraries(crushtool global)
 install(TARGETS crushtool DESTINATION bin)
 
+set(ceph_balancer_srcs ceph_balancer.cc)
+add_executable(ceph_balancer ${ceph_balancer_srcs})
+target_link_libraries(ceph_balancer global-static)
+install(TARGETS ceph_balancer DESTINATION bin)
+
 set(monmaptool_srcs monmaptool.cc)
 add_executable(monmaptool ${monmaptool_srcs})
 target_link_libraries(monmaptool global)
